@@ -2099,6 +2099,68 @@ def get_last_10_runs_for_recipe(machine_code: str, recipe_identifier: str) -> pd
         return pd.DataFrame()
 
 
+def get_last_10_runs_for_machine_with_recipe(machine_code: str, opcnodeids: list) -> pd.DataFrame:
+    """
+    Get the 10 most recent production runs for a machine that contain data for 
+    the specified recipe parameters (opcnodeids).
+    
+    Filters runs to only those where at least one of the selected opcnodeids 
+    has data recorded within the run's time window.
+    
+    Args:
+        machine_code: The machine code to filter by
+        opcnodeids: List of OPC NodeIds that define the recipe (e.g., ["param1", "param2"])
+                   If empty or None, returns empty DataFrame.
+    
+    Returns:
+        DataFrame with last 10 matching runs with columns: RunId, MachineCode, 
+        StartTs, EndTs, Status, RecipeIdentifier
+    """
+    if not opcnodeids or len(opcnodeids) == 0:
+        return pd.DataFrame()
+    
+    try:
+        # Build the IN clause for OPC NodeIds
+        opcnodeid_placeholders = ','.join([f':opcnodeid_{i}' for i in range(len(opcnodeids))])
+        params = {"machine": machine_code}
+        for i, nodeid in enumerate(opcnodeids):
+            params[f"opcnodeid_{i}"] = nodeid
+        
+        query = f"""
+            SELECT TOP 10
+                pr.[RunId],
+                pr.[MachineCode],
+                pr.[StartTs],
+                pr.[EndTs],
+                pr.[Status],
+                pr.[ScopeKey] AS RecipeIdentifier
+            FROM [dbo].[productionrun] pr
+            WHERE pr.[MachineCode] = :machine
+              AND pr.[StartTs] IS NOT NULL
+              AND pr.[EndTs] IS NOT NULL
+              AND EXISTS (
+                SELECT 1
+                FROM [dbo].[MachineTagValue] mtv WITH (NOLOCK)
+                WHERE mtv.[MachineCode] = pr.[MachineCode]
+                  AND mtv.[OpcNodeId] IN ({opcnodeid_placeholders})
+                  AND mtv.[SourceTimestamp] BETWEEN pr.[StartTs] AND pr.[EndTs]
+              )
+            ORDER BY pr.[StartTs] DESC
+        """
+
+        with get_engine().connect() as c:
+            df = pd.read_sql(text(query), c, params=params)
+
+        if not df.empty:
+            df['StartTs'] = pd.to_datetime(df['StartTs'])
+            df['EndTs'] = pd.to_datetime(df['EndTs'])
+
+        return df
+    except Exception as e:
+        st.warning(f"Error getting last 10 runs for recipe: {str(e)}")
+        return pd.DataFrame()
+
+
 def get_all_params_in_time_window(machine_code: str, start_ts, end_ts) -> list:
     """
     Discover all distinct OpcNodeIds recorded during a time window.

@@ -29,9 +29,8 @@ from auth_helpers import ensure_page_authentication, render_nav_bar  # noqa: E40
 from db_helpers import (
     load_all_machines,
     load_all_parameters_for_machine,
-    get_last_10_runs_for_machine,
+    get_last_10_runs_for_machine_with_recipe,
     get_all_params_in_time_window,
-    get_recent_runs_for_sample_collection,
     get_labeled_samples_from_runs,
     calculate_recipe_parameter_statistics_from_samples,
     save_recipe_datasheet,
@@ -386,7 +385,7 @@ if selected_recipe_params != st.session_state.analysis_recipe_params_selected:
 # ── Step 3: Select Production Run (last 10) ─────────────────────────────────
 st.markdown("---")
 st.markdown('<p class="cofi-section-title">Step 3: Select Production Run</p>', unsafe_allow_html=True)
-st.caption(f"Last 10 production runs for {selected_machine}. Choose which run to analyze.")
+st.caption(f"Last 10 production runs for {selected_machine} with selected recipe parameters. Choose which run to analyze.")
 
 if st.button(
     "Load Last 10 Runs",
@@ -394,10 +393,10 @@ if st.button(
     type="primary",
     key="btn_load_runs"
 ):
-    runs_df = get_last_10_runs_for_machine(selected_machine)
+    runs_df = get_last_10_runs_for_machine_with_recipe(selected_machine, selected_recipe_params)
 
     if runs_df.empty:
-        st.error(f"No production runs found for {selected_machine}.")
+        st.error(f"No production runs found for {selected_machine} with the selected recipe parameters.")
         st.stop()
 
     st.session_state["analysis_runs"] = runs_df
@@ -453,12 +452,13 @@ with st.expander("View discovered parameters", expanded=False):
 # ── Step 5: Select Runs for Sample Collection ────────────────────────────────
 st.markdown("---")
 st.markdown('<p class="cofi-section-title">Step 5: Select Runs for Sample Collection</p>', unsafe_allow_html=True)
-st.caption("Collecting up to 5,000 samples per parameter from each selected recent run.")
+st.caption("Select from the filtered production runs (last 10 for machine with recipe) to collect samples.")
 
-recent_runs = get_recent_runs_for_sample_collection(selected_machine, limit=10)
+# Use the filtered runs from Step 3 instead of fetching all recent runs
+recent_runs = st.session_state.get("analysis_runs", pd.DataFrame())
 
 if recent_runs.empty:
-    st.error(f"No recent production runs found for {selected_machine}.")
+    st.error(f"No production runs available. Please reload the runs in Step 3.")
     st.stop()
 
 recent_run_ids = recent_runs["RunId"].tolist()
