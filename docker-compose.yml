@@ -1,0 +1,28 @@
+version: '3.8'
+
+services:
+  cable-ai:
+    image: cable-manufacturing-ai:1.0.0
+    container_name: cable-manufacturing-ai
+    ports:
+      - "8501:8501"
+    environment:
+      - DB_HOST=${DB_HOST}
+      - DB_PORT=${DB_PORT}
+      - DB_USER=${DB_USER}
+      - DB_PASSWORD=${DB_PASSWORD}
+      - DB_NAME=${DB_NAME}
+      - MISTRAL_API_KEY=${MISTRAL_API_KEY}
+      - STREAMLIT_SERVER_HEADLESS=true
+      - STREAMLIT_LOGGER_LEVEL=error
+      - STREAMLIT_CLIENT_TOOLBARPOSITION=hidden
+      - STREAMLIT_CLIENT_SHOWSIDEBARINITIALSTATE=collapsed
+    volumes:
+      - ./cable_maintenance_ai:/app
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import sqlalchemy; print('OK')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s

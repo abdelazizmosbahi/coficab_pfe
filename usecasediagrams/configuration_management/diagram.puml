@@ -1,0 +1,80 @@
+@startuml
+!theme plain
+
+skinparam backgroundColor #FEFEFE
+skinparam useCaseFontColor #1A1A2E
+skinparam useCaseFontSize 12
+skinparam useCaseBorderColor #2C3E50
+skinparam useCaseBackgroundColor #FFFFFF
+skinparam actorFontColor #1A1A2E
+skinparam actorFontSize 14
+skinparam actorFontStyle bold
+skinparam arrowColor #34495E
+skinparam arrowThickness 2
+skinparam arrowFontSize 11
+skinparam defaultTextAlignment center
+skinparam linetype ortho
+skinparam packageBackgroundColor #F4F6F9
+skinparam packageBorderColor #2C3E50
+skinparam packageFontColor #2C3E50
+skinparam packageFontSize 13
+skinparam packageFontStyle bold
+
+left to right direction
+title Cable Manufacturing AI\nConfiguration Management — Low-Level Use Case Decomposition
+
+actor "Analyst" as analyst
+
+rectangle "Top-Level\n(Actor-Facing)" as toplevel #E8F0FE {
+  usecase (UCC1\nView Machine\nStatus) as UCC1
+  usecase (UCC2\nCreate\nConfiguration) as UCC2
+  usecase (UCC3\nView\nConfigurations) as UCC3
+  usecase (UCC4\nEdit\nConfiguration) as UCC4
+  usecase (UCC5\nDelete\nConfiguration) as UCC5
+}
+
+rectangle "Low-Level\n(System Internals)" as lowlevel #F0F8F0 {
+  usecase (UCAUTH\nAuthenticate) as UCAUTH
+  usecase (UCC6\nBrowse Machine\nRegistry) as UCC6
+  usecase (UCC7\nBrowse Parameter\nCatalog) as UCC7
+  usecase (UCC8\nInsert\nConfiguration) as UCC8
+  usecase (UCC9\nFetch Config\nBy ID) as UCC9
+  usecase (UCC10\nUpdate\nConfiguration) as UCC10
+  usecase (UCC11\nDelete\nConfiguration Rec) as UCC11
+  usecase (UCC12\nRead Machine\nStatus Data) as UCC12
+  usecase (UCC13\nLoad Config\nList) as UCC13
+}
+
+' ── Actor connections ──
+analyst --> UCC1
+analyst --> UCC2
+analyst --> UCC3
+analyst --> UCC4
+analyst --> UCC5
+
+' ── Include: mandatory behavior ──
+' Prerequisite: every top-level UC requires authentication
+UCC1 ..> UCAUTH : <<include>>
+UCC2 ..> UCAUTH : <<include>>
+UCC3 ..> UCAUTH : <<include>>
+UCC4 ..> UCAUTH : <<include>>
+UCC5 ..> UCAUTH : <<include>>
+
+UCC1 ..> UCC12 : <<include>>
+
+UCC2 ..> UCC6 : <<include>>
+UCC2 ..> UCC7 : <<include>>
+UCC2 ..> UCC8 : <<include>>
+
+UCC3 ..> UCC6 : <<include>>
+UCC3 ..> UCC13 : <<include>>
+
+UCC4 ..> UCC6 : <<include>>
+UCC4 ..> UCC7 : <<include>>
+UCC4 ..> UCC9 : <<include>>
+UCC4 ..> UCC10 : <<include>>
+
+UCC5 ..> UCC6 : <<include>>
+UCC5 ..> UCC11 : <<include>>
+
+@enduml

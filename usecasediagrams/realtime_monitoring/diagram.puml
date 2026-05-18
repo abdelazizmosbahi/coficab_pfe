@@ -1,0 +1,78 @@
+@startuml
+!theme plain
+
+skinparam backgroundColor #FEFEFE
+skinparam useCaseFontColor #1A1A2E
+skinparam useCaseFontSize 12
+skinparam useCaseBorderColor #2C3E50
+skinparam useCaseBackgroundColor #FFFFFF
+skinparam actorFontColor #1A1A2E
+skinparam actorFontSize 14
+skinparam actorFontStyle bold
+skinparam arrowColor #34495E
+skinparam arrowThickness 2
+skinparam arrowFontSize 11
+skinparam defaultTextAlignment center
+skinparam linetype ortho
+skinparam packageBackgroundColor #F4F6F9
+skinparam packageBorderColor #2C3E50
+skinparam packageFontColor #2C3E50
+skinparam packageFontSize 13
+skinparam packageFontStyle bold
+
+left to right direction
+title Cable Manufacturing AI\nReal-Time Monitoring — Low-Level Use Case Decomposition
+
+actor "Analyst" as analyst
+
+rectangle "Top-Level\n(Actor-Facing)" as toplevel #E8F0FE {
+  usecase (UCM1\nExecute Config\nAnalysis) as UCM1
+  usecase (UCM2\nView Reference\nDatasheet) as UCM2
+  usecase (UCM3\nMonitor Real-Time\nParameters) as UCM3
+  usecase (UCM4\nView Parameter\nTraceability) as UCM4
+}
+
+rectangle "Low-Level\n(System Internals)" as lowlevel #F0F8F0 {
+  usecase (UCAUTH\nAuthenticate) as UCAUTH
+  usecase (UCM5\nLaunch Papermill\nNotebook) as UCM5
+  usecase (UCM6\nExtract Notebook\nResults) as UCM6
+  usecase (UCM7\nStore Analysis\nResults to DB) as UCM7
+  usecase (UCM8\nLoad Reference\nDatasheet) as UCM8
+  usecase (UCM9\nLoad Current Values\nfrom DB) as UCM9
+  usecase (UCM10\nCompute Quality\nScore) as UCM10
+  usecase (UCM11\nEvaluate Per-Param\nSpec Status) as UCM11
+  usecase (UCM12\nFetch Sliding-Window\nData) as UCM12
+  usecase (UCM13\nFetch Full\nHistorical Data) as UCM13
+  usecase (UCM14\nRender Traceability\nChart) as UCM14
+}
+
+' ── Actor connections ──
+analyst --> UCM1
+analyst --> UCM2
+analyst --> UCM3
+analyst --> UCM4
+
+' ── Include: mandatory behavior ──
+' Prerequisite: every top-level UC requires authentication
+UCM1 ..> UCAUTH : <<include>>
+UCM2 ..> UCAUTH : <<include>>
+UCM3 ..> UCAUTH : <<include>>
+UCM4 ..> UCAUTH : <<include>>
+
+UCM1 ..> UCM5 : <<include>>
+UCM1 ..> UCM6 : <<include>>
+UCM1 ..> UCM7 : <<include>>
+
+UCM2 ..> UCM8 : <<include>>
+
+UCM3 ..> UCM9 : <<include>>
+UCM3 ..> UCM10 : <<include>>
+UCM3 ..> UCM11 : <<include>>
+
+UCM4 ..> UCM12 : <<include>>
+UCM4 ..> UCM14 : <<include>>
+
+' ── Extend: conditional/alternative ──
+UCM13 ..> UCM4 : <<extend>>\nconditional\n(user toggles\n"Full Timeline")
+
+@enduml

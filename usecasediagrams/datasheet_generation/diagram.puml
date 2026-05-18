@@ -1,0 +1,81 @@
+@startuml
+!theme plain
+
+skinparam backgroundColor #FEFEFE
+skinparam useCaseFontColor #1A1A2E
+skinparam useCaseFontSize 12
+skinparam useCaseBorderColor #2C3E50
+skinparam useCaseBackgroundColor #FFFFFF
+skinparam actorFontColor #1A1A2E
+skinparam actorFontSize 14
+skinparam actorFontStyle bold
+skinparam arrowColor #34495E
+skinparam arrowThickness 2
+skinparam arrowFontSize 11
+skinparam defaultTextAlignment center
+skinparam linetype ortho
+skinparam packageBackgroundColor #F4F6F9
+skinparam packageBorderColor #2C3E50
+skinparam packageFontColor #C0392B
+skinparam packageFontSize 13
+skinparam packageFontStyle bold
+
+left to right direction
+title Cable Manufacturing AI\nDatasheet Generation — Low-Level Use Case Decomposition
+
+actor "Analyst" as analyst
+
+rectangle "Top-Level\n(Actor-Facing)" as toplevel #E8F0FE {
+  usecase (UCD1\nGenerate Recipe\nDatasheet) as UCD1
+  usecase (UCD2\nView Existing\nDatasheets) as UCD2
+  usecase (UCD3\nView Analysis\nHistory) as UCD3
+}
+
+rectangle "Wizard Steps\n(6-Step Flow)" as steps #FFF8E8 {
+  usecase (UCD4\nSelect Machine) as UCD4
+  usecase (UCD5\nPick Recipe\nParameters) as UCD5
+  usecase (UCD6\nLoad & Select\nProduction Run) as UCD6
+  usecase (UCD7\nDiscover Window\nParameters) as UCD7
+  usecase (UCD8\nSelect Sample\nCollection Runs) as UCD8
+  usecase (UCD9\nCollect Samples\n& Compute Stats) as UCD9
+}
+
+rectangle "Low-Level\n(System Internals)" as lowlevel #F0F8F0 {
+  usecase (UCAUTH\nAuthenticate) as UCAUTH
+  usecase (UCD10\nQuery Labeled\nSamples) as UCD10
+  usecase (UCD11\nCalculate Per-Param\nStatistics) as UCD11
+  usecase (UCD12\nSave Datasheet\nto DB) as UCD12
+  usecase (UCD13\nLoad Datasheet\nfrom DB) as UCD13
+  usecase (UCD14\nLoad Analysis\nRun List) as UCD14
+  usecase (UCD15\nLoad Run\nDetails) as UCD15
+}
+
+' ── Actor connections ──
+analyst --> UCD1
+analyst --> UCD2
+analyst --> UCD3
+
+' ── Include: wizard steps (sequential) ──
+UCD1 ..> UCD4 : <<include>>
+UCD1 ..> UCD5 : <<include>>
+UCD1 ..> UCD6 : <<include>>
+UCD1 ..> UCD7 : <<include>>
+UCD1 ..> UCD8 : <<include>>
+UCD1 ..> UCD9 : <<include>>
+
+' ── Include: sub-steps of collection ──
+UCD9 ..> UCD10 : <<include>>
+UCD9 ..> UCD11 : <<include>>
+UCD9 ..> UCD12 : <<include>>
+
+' ── Include: system internals ──
+UCD2 ..> UCD13 : <<include>>
+UCD3 ..> UCD14 : <<include>>
+UCD3 ..> UCD15 : <<include>>
+
+' ── Prerequisite: every top-level UC requires authentication ──
+UCD1 ..> UCAUTH : <<include>>
+UCD2 ..> UCAUTH : <<include>>
+UCD3 ..> UCAUTH : <<include>>
+
+@enduml

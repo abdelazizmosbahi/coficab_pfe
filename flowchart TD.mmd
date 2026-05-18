@@ -1,0 +1,41 @@
+flowchart TD
+    %% Actors
+    OPR((👤 Operator))
+    ANL((👤 Analyst))
+
+    %% Use cases
+    AUTH["Authenticate
+        ─────────────
+        Login · Register · Logout"]
+    MGR_CONFIG["Manage Configuration
+        ─────────────
+        Create · Read · Update · Delete"]
+    MON_PARAM["Monitor Parameters
+        ─────────────
+        Real-time values · Spec ranges
+        Violation badges · Charts"]
+    GEN_DS["Generate Datasheet
+        ─────────────
+        Run selection · Sample collection
+        Statistics · Quality correlation"]
+    RCA["Analyze Root Cause
+        ─────────────
+        Mistral AI analysis
+        Corrective actions"]
+
+    %% Relationships
+    OPR --- AUTH
+    OPR --- MON_PARAM
+    OPR --- RCA
+
+    ANL --- AUTH
+    ANL --- MGR_CONFIG
+    ANL --- MON_PARAM
+    ANL --- GEN_DS
+    ANL --- RCA
+
+    %% Styling
+    classDef actor fill:#e8f0fe,stroke:#1a73e8,stroke-width:2px;
+    classDef uc fill:#fef7e0,stroke:#f9ab00,stroke-width:1px;
+    class OPR,ANL actor;
+    class AUTH,MGR_CONFIG,MON_PARAM,GEN_DS,RCA uc;
