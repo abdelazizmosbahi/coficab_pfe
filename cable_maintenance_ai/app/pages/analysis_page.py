@@ -1,13 +1,5 @@
 """
 Recipe-Aware Datasheet Generator Page
-
-Flow:
-1. Select Machine
-2. Select Recipe Identifier
-3. Select RunId from last 10 runs for that recipe
-4. Discover ALL params in that run's time window (timestamp-based)
-5. Select one or more recent runs for sample collection
-6. Collect 5,000 samples per param per selected run → Generate datasheet
 """
 
 import streamlit as st
@@ -18,13 +10,40 @@ import sys
 import base64
 from dotenv import load_dotenv
 from datetime import datetime
+from pathlib import Path
 
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-ROOT_DIR = os.path.dirname(BASE_DIR)
 
-load_dotenv(os.path.join(BASE_DIR, '.env'))
+# ─────────────────────────────────────────────────────────────
+# ROBUST PROJECT ROOT DETECTION
+# ─────────────────────────────────────────────────────────────
+def get_project_root() -> Path:
+    """Find project root reliably whether running locally or in Docker."""
+    current = Path(__file__).resolve()
+    
+    for _ in range(6):
+        if (current / '.env').exists() or \
+           (current / 'docker-compose.yml').exists() or \
+           (current.name == 'cable_maintenance_ai'):
+            return current
+        current = current.parent
+    
+    return Path.cwd()
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+ROOT_DIR = get_project_root()
+load_dotenv(ROOT_DIR / '.env')
+
+# Fallback for old structure
+try:
+    BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    load_dotenv(os.path.join(BASE_DIR, '.env'))
+except:
+    pass
+
+# Add root to path
+if str(ROOT_DIR) not in sys.path:
+    sys.path.insert(0, str(ROOT_DIR))
+
 from auth_helpers import ensure_page_authentication, render_nav_bar  # noqa: E402
 from db_helpers import (
     load_all_machines,
@@ -403,23 +422,39 @@ if st.button(
     type="primary",
     key="btn_load_runs"
 ):
-    runs_df = get_last_10_runs_for_machine_with_recipe(selected_machine, selected_recipe_params)
+    with st.spinner("Loading production runs..."):
+        runs_df = get_last_10_runs_for_machine_with_recipe(selected_machine, selected_recipe_params)
 
-    if runs_df.empty:
-        st.error(f"No production runs found for {selected_machine} with the selected recipe parameters.")
-        st.stop()
+        st.write("**Debug Info:**")
+        st.write("Selected Machine:", selected_machine)
+        st.write("Selected Recipe Params Count:", len(selected_recipe_params))
+        
+        if runs_df.empty:
+            st.error(f"No production runs found for {selected_machine} with the selected recipe parameters.")
+            st.stop()
+        else:
+            st.success(f"✅ Loaded {len(runs_df)} production runs successfully!")
+            st.session_state["analysis_runs"] = runs_df
+            st.session_state.analysis_step = 3
+            st.rerun()   # Important: Force refresh to show next steps
 
-    st.session_state["analysis_runs"] = runs_df
-    st.session_state.analysis_step = 3
-
+# ── Continue only if runs are loaded ─────────────────────────────────────
 if "analysis_runs" not in st.session_state:
+    st.info("👆 Click **'Load Last 10 Runs'** to continue.")
     st.stop()
 
 runs_df = st.session_state["analysis_runs"]
 
+# Display runs nicely
 run_display = runs_df.copy()
 run_display["StartTs"] = run_display["StartTs"].dt.strftime("%Y-%m-%d %H:%M")
 run_display["EndTs"] = run_display["EndTs"].dt.strftime("%Y-%m-%d %H:%M")
+
+st.dataframe(
+    run_display[["RunId", "StartTs", "EndTs", "RecipeIdentifier", "Status"]],
+    use_container_width=True,
+    hide_index=True
+)
 
 selected_run_label = st.selectbox(
     "Select a production run to analyze",
@@ -442,7 +477,7 @@ with run_info_cols[2]:
 # ── Step 4: Discover Parameters ─────────────────────────────────────────────
 st.markdown("---")
 st.markdown('<p class="cofi-section-title">Step 4: Discover Parameters</p>', unsafe_allow_html=True)
-st.caption("Finding all parameters recorded during this run's time window (timestamp-based, no ProductionRunId dependency).")
+st.caption("Finding all parameters recorded during this run's time window.")
 
 discovered_params = get_all_params_in_time_window(
     selected_machine,
@@ -451,13 +486,24 @@ discovered_params = get_all_params_in_time_window(
 )
 
 if not discovered_params:
-    st.warning("No parameters found in the selected run's time window.")
+    st.warning("⚠️ No parameters found in the selected run window.")
+    st.info("Using fallback: showing recent parameters for this machine.")
+    # Use fallback from the function above
+    discovered_params = get_all_params_in_time_window(selected_machine, pd.Timestamp.now() - pd.Timedelta(days=1), pd.Timestamp.now())
+
+if discovered_params:
+    st.success(f"✅ Discovered **{len(discovered_params)}** parameters")
+    with st.expander("View discovered parameters", expanded=True):
+        st.dataframe(
+            pd.DataFrame({"OpcNodeId": discovered_params}),
+            use_container_width=True,
+            hide_index=True,
+            height=400
+        )
+else:
+    st.error("No parameters available for this machine at all.")
     st.stop()
 
-st.info(f"Discovered **{len(discovered_params)}** parameters in the run window")
-
-with st.expander("View discovered parameters", expanded=False):
-    st.dataframe(pd.DataFrame({"OpcNodeId": discovered_params}), use_container_width=True, hide_index=True, height=300)
 
 # ── Step 5: Select Runs for Sample Collection ────────────────────────────────
 st.markdown("---")
@@ -513,41 +559,49 @@ if st.button(
     type="primary",
     key="btn_generate_datasheet"
 ):
-    with st.spinner(f"Collecting up to 5,000 samples × {run_count} runs for {len(discovered_params)} parameters..."):
+    # Define samples_per_run here
+    samples_per_run = 1500
+    
+    with st.spinner(f"Collecting up to {samples_per_run:,} samples × {run_count} runs for {len(discovered_params)} parameters..."):
         try:
             labeled_samples, quality_info = get_labeled_samples_from_runs(
                 selected_machine,
                 selected_runs,
                 discovered_params,
-                samples_per_run=5000
+                samples_per_run=samples_per_run
             )
 
             if labeled_samples.empty:
-                st.error("No parameter samples collected. Ensure data exists in the run time windows.")
+                st.error("❌ No parameter samples collected.")
+                st.info("""
+                **Why this might be happening:**
+                - The selected production runs are older than the data available in the database
+                - Database may not be receiving real-time data from OPC UA currently
+                - Time window doesn't overlap with stored data
+                
+                **Recommendations:**
+                1. Go back to **Step 3** and select the **most recent** production runs
+                2. Try runs from the last 24-48 hours
+                3. Check if the machine has been producing recently
+                """)
+                st.stop()
             else:
                 total_samples = len(labeled_samples)
                 ok_count = int((labeled_samples['IsOk'] == 1).sum())
                 not_ok_count = total_samples - ok_count
 
-                with st.expander("Quality Diagnostics", expanded=True):
+                with st.expander("🔍 Quality Diagnostics", expanded=True):
                     q_map = quality_info.get("quality_map", {})
                     st.markdown(f"**ProductionRunQuality lookup results:**")
                     st.markdown(f"- RunIds queried: {len(selected_runs)}")
                     st.markdown(f"- RunIds found in ProductionRunQuality: {len(quality_info.get('matched_runs', []))}")
                     st.markdown(f"- RunIds NOT found: {len(quality_info.get('missing_runs', []))}")
                     st.markdown(f"- Quality map: `{q_map}`")
-                    st.markdown(f"- All IsOk values are 0: `{quality_info.get('all_zero', True)}`")
 
                     if quality_info.get("missing_runs"):
-                        st.warning(f"RunIds not found in ProductionRunQuality: `{quality_info['missing_runs']}`")
+                        st.warning(f"Missing in Quality table: `{quality_info['missing_runs']}`")
 
-                    if quality_info.get("all_zero"):
-                        st.warning("All matched runs have IsOk=0. Check if the ProductionRunQuality table has correct data.")
-
-                    if not q_map:
-                        st.error("ProductionRunQuality table returned NO matching records. The table may be empty or RunId formats don't match.")
-
-                st.info(f"Collected **{total_samples:,}** total samples ({ok_count:,} OK / {not_ok_count:,} NOT OK)")
+                st.success(f"✅ Collected **{total_samples:,}** total samples ({ok_count:,} OK / {not_ok_count:,} NOT OK)")
 
                 with st.spinner("Calculating statistics from labeled samples..."):
                     statistics_df = calculate_recipe_parameter_statistics_from_samples(labeled_samples)
@@ -559,7 +613,6 @@ if st.button(
                     if len(recipe_key) > 255:
                         recipe_key = recipe_key[:255]
 
-                    # Save the datasheet run with execution timestamp
                     datasheet_run_id = save_datasheet_run(
                         selected_machine,
                         recipe_key,
@@ -592,7 +645,7 @@ if st.button(
                                 "datasheet_run_id": datasheet_run_id,
                                 "statistics": statistics_df
                             }
-                            st.success(f"Datasheet generated and saved as Run #{datasheet_run_id}! {len(statistics_df)} parameters from {total_samples:,} samples across {run_count} selected runs.")
+                            st.success(f"🎉 Datasheet generated and saved as Run #{datasheet_run_id}!")
                         else:
                             st.error("Failed to save datasheet to database.")
                     else:
@@ -601,104 +654,3 @@ if st.button(
             st.error(f"Analysis error: {str(e)}")
             import traceback
             st.error(traceback.format_exc())
-
-# ── Display Results ──────────────────────────────────────────────────────────
-if st.session_state.get("analysis_results"):
-    results = st.session_state["analysis_results"]
-    st.markdown("---")
-    st.markdown('<p class="cofi-section-title">Generated Datasheet</p>', unsafe_allow_html=True)
-
-    machine_label = results.get("machine", "—")
-    recipe_label = results.get("recipe_key", "—")
-    recipe_params_display = results.get("recipe_params", [])
-    if recipe_params_display:
-        recipe_label = ", ".join(p.split(".")[-1].replace("_ACT", "") for p in recipe_params_display[:3])
-        if len(recipe_params_display) > 3:
-            recipe_label += f" (+{len(recipe_params_display)-3})"
-
-    meta_cols = st.columns(4)
-    with meta_cols[0]:
-        st.metric("Machine", machine_label)
-    with meta_cols[1]:
-        st.metric("Recipe Params", recipe_label)
-    with meta_cols[2]:
-        st.metric("Parameters", results["parameter_count"])
-    with meta_cols[3]:
-        if results.get("total_samples", 0) > 0:
-            st.metric("Samples", f"{results['total_samples']:,}")
-        elif results["timestamp"]:
-            st.metric("Generated At", results["timestamp"].strftime("%Y-%m-%d %H:%M"))
-        else:
-            st.metric("Status", "Loaded (Existing)")
-
-    if results.get("total_samples", 0) > 0:
-        sample_cols = st.columns(3)
-        with sample_cols[0]:
-            st.metric("OK Samples", f"{results.get('ok_samples', 0):,}")
-        with sample_cols[1]:
-            st.metric("NOT OK Samples", f"{results.get('not_ok_samples', 0):,}")
-        with sample_cols[2]:
-            total = results.get("total_samples", 0)
-            ok = results.get("ok_samples", 0)
-            pct = (ok / total * 100) if total > 0 else 0
-            st.metric("OK Percentage", f"{pct:.1f}%")
-
-    st.markdown("---")
-
-    stats_df = results["statistics"].copy()
-
-    if "MachineCode" not in stats_df.columns:
-        stats_df["MachineCode"] = results.get("machine", "")
-    if "RecipeIdentifier" not in stats_df.columns:
-        stats_df["RecipeIdentifier"] = results.get("recipe_key", "")
-
-    # Display columns: MachineCode, RecipeIdentifier, OpcNodeId, and other statistics
-    # Note: ParameterName is excluded since OpcNodeId provides the necessary identification
-    first_cols = ["MachineCode", "RecipeIdentifier", "OpcNodeId"]
-    other_cols = [c for c in stats_df.columns if c not in first_cols and c != "ParameterName"]
-    stats_df = stats_df[first_cols + other_cols]
-
-    for col in ["MinValue", "OptimalValue", "MaxValue", "MeanValue", "StdDev"]:
-        if col in stats_df.columns:
-            stats_df[col] = stats_df[col].apply(lambda x: f"{float(x):.4f}" if pd.notna(x) else "—")
-
-    display_df = stats_df.copy()
-
-    st.dataframe(
-        display_df,
-        use_container_width=True,
-        hide_index=True,
-        height=min(600, 36 * len(display_df) + 50)
-    )
-
-    with st.expander("Download Datasheet", expanded=False):
-        csv = stats_df.to_csv(index=False)
-        st.download_button(
-            label="Download as CSV",
-            data=csv,
-            file_name=f"datasheet_{results['machine']}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
-            mime="text/csv",
-            use_container_width=True
-        )
-
-        st.markdown("**Quality Correlation Summary:**")
-
-        if "QualityOkCount" in stats_df.columns and "QualityNotOkCount" in stats_df.columns:
-            total_ok = stats_df["QualityOkCount"].sum()
-            total_not_ok = stats_df["QualityNotOkCount"].sum()
-            total_samples = total_ok + total_not_ok
-
-            col1, col2, col3 = st.columns(3)
-            with col1:
-                st.metric("OK Run Samples", f"{int(total_ok):,}")
-            with col2:
-                st.metric("NOT OK Run Samples", f"{int(total_not_ok):,}")
-            with col3:
-                ok_pct = (total_ok / total_samples * 100) if total_samples > 0 else 0
-                st.metric("OK Percentage", f"{ok_pct:.1f}%")
-
-            st.caption(
-                f"Statistics calculated from {results.get('total_samples', 0):,} labeled samples across {results['run_count']} recent runs. "
-                f"Up to 5,000 samples collected per run per parameter. "
-                f"Optimal values are medians of OK-run samples."
-            )

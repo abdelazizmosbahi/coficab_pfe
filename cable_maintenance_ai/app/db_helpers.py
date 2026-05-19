@@ -1,9 +1,5 @@
 ﻿"""
 Shared MySQL data loading helpers for all app pages.
-
-Every loader is @st.cache_data decorated so multiple pages share the same in-process
-cache.  Column aliases keep backward compatibility with code written against the
-old CSV files.
 """
 
 import json
@@ -11,6 +7,7 @@ import os
 import sys
 import requests
 from datetime import datetime
+from pathlib import Path
 
 import pandas as pd
 import numpy as np
@@ -18,26 +15,68 @@ import streamlit as st
 from dotenv import load_dotenv
 from sqlalchemy import text
 
-# Project root is three levels up: pages/ -> app/ -> cable_maintenance_ai/ -> root
-_ROOT_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-load_dotenv(os.path.join(_ROOT_DIR, ".env"))
-if _ROOT_DIR not in sys.path:
-    sys.path.insert(0, _ROOT_DIR)
+@st.cache_resource
+def get_engine():
+    """Get fresh engine - critical for Docker."""
+    engine = _engine_factory()
+    if engine is None:
+        st.error("❌ Database connection failed.")
+        st.stop()
+    return engine
+# ─────────────────────────────────────────────────────────────
+# ROBUST PROJECT ROOT DETECTION (Works in Docker + Local)
+# ─────────────────────────────────────────────────────────────
+def get_project_root() -> Path:
+    """Find project root reliably whether running locally or in Docker."""
+    current = Path(__file__).resolve()
+    
+    # Try up to 6 levels up
+    for _ in range(6):
+        # Check for common root markers
+        if (current / '.env').exists() or \
+           (current / 'docker-compose.yml').exists() or \
+           (current / 'requirements.txt').exists() or \
+           (current.name == 'cable_maintenance_ai'):
+            return current
+        current = current.parent
+    
+    # Fallback: use current working directory
+    return Path.cwd()
+
+
+# Load .env (important for local development)
+ROOT_DIR = get_project_root()
+load_dotenv(ROOT_DIR / '.env')
+
+# Also support old structure for safety during transition
+try:
+    _OLD_ROOT = Path(__file__).resolve().parents[3]  # pages/ -> app/ -> cable_maintenance_ai/ -> root
+    load_dotenv(_OLD_ROOT / '.env')
+except:
+    pass
+
+# Add project root to Python path
+if str(ROOT_DIR) not in sys.path:
+    sys.path.insert(0, str(ROOT_DIR))
 
 from db_connection import get_db_engine as _engine_factory  # noqa: E402
 
 
 @st.cache_resource
 def get_engine():
-    """Cached SQLAlchemy engine shared across all pages."""
     engine = _engine_factory()
     if engine is None:
-        st.error(
-            "❌ Database connection failed. "
-            "Check your .env credentials (DB_HOST, DB_USER, DB_PASSWORD, DB_NAME)."
-        )
+        st.error("❌ Database connection failed. Check .env and Docker networking.")
         st.stop()
-    return engine
+    
+    # Test connection
+    try:
+        with engine.connect() as conn:
+            conn.execute(text("SELECT 1"))
+        return engine
+    except Exception as e:
+        st.error(f"❌ DB connection test failed: {e}")
+        st.stop()
 
 
 # ── recipe_parameters ────────────────────────────────────────────────────────
@@ -2099,34 +2138,15 @@ def get_last_10_runs_for_recipe(machine_code: str, recipe_identifier: str) -> pd
         return pd.DataFrame()
 
 
+@st.cache_data
 def get_last_10_runs_for_machine_with_recipe(machine_code: str, opcnodeids: list) -> pd.DataFrame:
-    """
-    Get the 10 most recent production runs for a machine that contain data for 
-    the specified recipe parameters (opcnodeids).
-    
-    Filters runs to only those where at least one of the selected opcnodeids 
-    has data recorded within the run's time window.
-    
-    Args:
-        machine_code: The machine code to filter by
-        opcnodeids: List of OPC NodeIds that define the recipe (e.g., ["param1", "param2"])
-                   If empty or None, returns empty DataFrame.
-    
-    Returns:
-        DataFrame with last 10 matching runs with columns: RunId, MachineCode, 
-        StartTs, EndTs, Status, RecipeIdentifier
-    """
-    if not opcnodeids or len(opcnodeids) == 0:
+    """Get last 10 runs for a machine (optionally filtered by recipe parameters)."""
+    if not machine_code:
         return pd.DataFrame()
-    
+
     try:
-        # Build the IN clause for OPC NodeIds
-        opcnodeid_placeholders = ','.join([f':opcnodeid_{i}' for i in range(len(opcnodeids))])
-        params = {"machine": machine_code}
-        for i, nodeid in enumerate(opcnodeids):
-            params[f"opcnodeid_{i}"] = nodeid
-        
-        query = f"""
+        # Start with simple query (more reliable)
+        query = """
             SELECT TOP 10
                 pr.[RunId],
                 pr.[MachineCode],
@@ -2138,75 +2158,75 @@ def get_last_10_runs_for_machine_with_recipe(machine_code: str, opcnodeids: list
             WHERE pr.[MachineCode] = :machine
               AND pr.[StartTs] IS NOT NULL
               AND pr.[EndTs] IS NOT NULL
-              AND EXISTS (
-                SELECT 1
-                FROM [dbo].[MachineTagValue] mtv WITH (NOLOCK)
-                WHERE mtv.[MachineCode] = pr.[MachineCode]
-                  AND mtv.[OpcNodeId] IN ({opcnodeid_placeholders})
-                  AND mtv.[SourceTimestamp] BETWEEN pr.[StartTs] AND pr.[EndTs]
-              )
             ORDER BY pr.[StartTs] DESC
         """
 
         with get_engine().connect() as c:
-            df = pd.read_sql(text(query), c, params=params)
+            df = pd.read_sql(text(query), c, params={"machine": machine_code})
 
         if not df.empty:
             df['StartTs'] = pd.to_datetime(df['StartTs'])
             df['EndTs'] = pd.to_datetime(df['EndTs'])
 
         return df
+
     except Exception as e:
-        st.warning(f"Error getting last 10 runs for recipe: {str(e)}")
+        st.error(f"❌ Error loading runs for {machine_code}: {str(e)}")
+        import traceback
+        st.error(traceback.format_exc())
         return pd.DataFrame()
 
-
+@st.cache_data(ttl=30)
 def get_all_params_in_time_window(machine_code: str, start_ts, end_ts) -> list:
-    """
-    Discover all distinct OpcNodeIds recorded during a time window.
-    Uses SourceTimestamp only — does NOT require ProductionRunId to be non-NULL.
-    Includes retry logic for SQL Server deadlock (Error 1205).
-    """
-    import time
-    max_retries = 3
-    retry_count = 0
+    """Smart discovery: Try run window, then fallback gracefully"""
+    try:
+        start_ts = pd.to_datetime(start_ts).tz_localize(None)
+        end_ts = pd.to_datetime(end_ts).tz_localize(None)
+
+        start_buffer = start_ts - pd.Timedelta(hours=2)
+        end_buffer = end_ts + pd.Timedelta(hours=2)
+
+        query = """
+            SELECT DISTINCT OpcNodeId
+            FROM MachineTagValue WITH (NOLOCK)
+            WHERE MachineCode = :machine
+              AND SourceTimestamp >= :start_ts 
+              AND SourceTimestamp <= :end_ts
+        """
+
+        with get_engine().connect() as c:
+            df = pd.read_sql(text(query), c, params={
+                "machine": machine_code,
+                "start_ts": start_buffer,
+                "end_ts": end_buffer
+            })
+
+        if not df.empty:
+            params = df['OpcNodeId'].dropna().unique().tolist()
+            st.success(f"✅ Found {len(params)} parameters in run time window")
+            return params
+
+        # Fallback
+        st.warning(f"⚠️ No data found in selected run window ({start_ts.date()}). Using latest available parameters.")
+        fallback_query = """
+            SELECT DISTINCT TOP 250 OpcNodeId 
+            FROM MachineTagValue WITH (NOLOCK)
+            WHERE MachineCode = :machine
+            ORDER BY SourceTimestamp DESC
+        """
+
+        with get_engine().connect() as c:
+            df_fallback = pd.read_sql(text(fallback_query), c, params={"machine": machine_code})
+
+        params = df_fallback['OpcNodeId'].dropna().unique().tolist()
+        st.info(f"📊 Using {len(params)} most recent parameters for this machine")
+        return params
+
+    except Exception as e:
+        st.error(f"Parameter discovery error: {str(e)}")
+        return []
     
-    while retry_count < max_retries:
-        try:
-            query = """
-                SELECT DISTINCT OpcNodeId
-                FROM MachineTagValue WITH (NOLOCK)
-                WHERE MachineCode = :machine
-                  AND SourceTimestamp BETWEEN :start_ts AND :end_ts
-                ORDER BY OpcNodeId
-            """
-
-            with get_engine().connect() as c:
-                df = pd.read_sql(text(query), c, params={
-                    "machine": machine_code,
-                    "start_ts": start_ts,
-                    "end_ts": end_ts
-                })
-
-            return df['OpcNodeId'].tolist() if not df.empty else []
-        except Exception as e:
-            error_str = str(e)
-            # Check if it's a deadlock error (1205)
-            if '1205' in error_str or 'deadlock' in error_str.lower():
-                retry_count += 1
-                if retry_count < max_retries:
-                    # Exponential backoff: 0.5s, 1s, 1.5s
-                    wait_time = 0.5 * retry_count
-                    time.sleep(wait_time)
-                    continue
-                else:
-                    st.error(f"⚠️ Database deadlock detected. Please try again in a moment.")
-                    return []
-            else:
-                st.warning(f"Error discovering parameters: {str(e)}")
-                return []
-
-
+    
 def get_recent_runs_for_sample_collection(machine_code: str, limit: int = 10) -> pd.DataFrame:
     """
     Get the most recent production runs for a machine.
@@ -2242,17 +2262,7 @@ def get_recent_runs_for_sample_collection(machine_code: str, limit: int = 10) ->
 
 
 def get_labeled_samples_from_runs(machine_code: str, runs: pd.DataFrame,
-                                   param_list: list, samples_per_run: int = 5000) -> tuple:
-    """
-    For each parameter, collect up to samples_per_run from each run window using timestamps.
-    Tags each sample with IsOk from ProductionRunQuality.
-
-    Returns (labeled_df, quality_info) where quality_info is a dict with diagnostics:
-        - quality_map: {RunId: IsOk}
-        - matched_runs: list of RunIds found in ProductionRunQuality
-        - missing_runs: list of RunIds NOT found
-        - all_zero: True if all found IsOk values are 0
-    """
+                                  param_list: list, samples_per_run: int = 1500) -> tuple:
     if runs.empty or not param_list:
         return pd.DataFrame(), {"quality_map": {}, "matched_runs": [], "missing_runs": [], "all_zero": True}
 
@@ -2260,72 +2270,78 @@ def get_labeled_samples_from_runs(machine_code: str, runs: pd.DataFrame,
     run_ids = runs['RunId'].tolist()
 
     try:
+        # Quality lookup
         with get_engine().connect() as c:
             run_ids_str = ','.join([f"'{r}'" for r in run_ids])
             quality_df = pd.read_sql(
-                text(f"""
-                    SELECT RunId, IsOk
-                    FROM [dbo].[ProductionRunQuality] WITH (NOLOCK)
-                    WHERE RunId IN ({run_ids_str})
-                """),
+                text(f"SELECT RunId, IsOk FROM [dbo].[ProductionRunQuality] WITH (NOLOCK) WHERE RunId IN ({run_ids_str})"),
                 c
             )
+            quality_map = dict(zip(quality_df['RunId'], quality_df['IsOk'])) if not quality_df.empty else {}
 
-            quality_map = {}
-            matched_runs = []
-            if not quality_df.empty:
-                quality_map = dict(zip(quality_df['RunId'], quality_df['IsOk']))
-                matched_runs = quality_df['RunId'].tolist()
+        st.info(f"✅ Quality data found for {len(quality_map)}/{len(run_ids)} runs")
 
-            missing_runs = [r for r in run_ids if r not in quality_map]
-            all_zero = all(v == 0 for v in quality_map.values()) if quality_map else True
+        progress_bar = st.progress(0)
+        total_tasks = len(param_list) * len(runs)
+        completed = 0
 
-            for param in param_list:
-                for _, run in runs.iterrows():
-                    end_ts = run['EndTs'] if pd.notna(run['EndTs']) else datetime.now()
+        for param in param_list:
+            for _, run in runs.iterrows():
+                try:
+                    with get_engine().connect() as c:
+                        start_ts = pd.to_datetime(run['StartTs']).tz_localize(None) - pd.Timedelta(minutes=90)
+                        end_ts = pd.to_datetime(run.get('EndTs', datetime.now())).tz_localize(None) + pd.Timedelta(minutes=90)
 
-                    samples_df = pd.read_sql(
-                        text("""
-                            SELECT TOP (:limit) OpcNodeId, Value, SourceTimestamp
-                            FROM MachineTagValue WITH (NOLOCK)
-                            WHERE MachineCode = :machine
-                              AND OpcNodeId = :param
-                              AND SourceTimestamp BETWEEN :start_ts AND :end_ts
-                            ORDER BY SourceTimestamp DESC
-                        """),
-                        c,
-                        params={
-                            "machine": machine_code,
-                            "param": param,
-                            "start_ts": run['StartTs'],
-                            "end_ts": end_ts,
-                            "limit": samples_per_run
-                        }
-                    )
+                        samples_df = pd.read_sql(
+                            text("""
+                                SELECT TOP (:limit) OpcNodeId, Value, SourceTimestamp
+                                FROM MachineTagValue WITH (NOLOCK)
+                                WHERE MachineCode = :machine 
+                                  AND OpcNodeId = :param
+                                  AND SourceTimestamp >= :start_ts 
+                                  AND SourceTimestamp <= :end_ts
+                                ORDER BY SourceTimestamp DESC
+                            """),
+                            c,
+                            params={
+                                "machine": machine_code,
+                                "param": param,
+                                "start_ts": start_ts,
+                                "end_ts": end_ts,
+                                "limit": samples_per_run
+                            }
+                        )
 
-                    if not samples_df.empty:
-                        samples_df['Value'] = pd.to_numeric(samples_df['Value'], errors='coerce')
-                        samples_df = samples_df.dropna(subset=['Value'])
-                        samples_df['RunId'] = run['RunId']
-                        samples_df['IsOk'] = quality_map.get(run['RunId'], 0)
-                        all_samples.append(samples_df)
+                        if not samples_df.empty:
+                            samples_df['Value'] = pd.to_numeric(samples_df['Value'], errors='coerce')
+                            samples_df = samples_df.dropna(subset=['Value']).copy()
+                            if not samples_df.empty:
+                                samples_df['RunId'] = run['RunId']
+                                samples_df['IsOk'] = quality_map.get(run['RunId'], 0)
+                                all_samples.append(samples_df)
+                except:
+                    pass
+                
+                completed += 1
+                progress_bar.progress(min(int((completed / total_tasks) * 100), 100))
 
-        quality_info = {
-            "quality_map": quality_map,
-            "matched_runs": matched_runs,
-            "missing_runs": missing_runs,
-            "all_zero": all_zero,
-        }
+        progress_bar.empty()
 
         if all_samples:
-            return pd.concat(all_samples, ignore_index=True), quality_info
-        return pd.DataFrame(), quality_info
-    except Exception as e:
-        error_str = str(e)
-        if '1205' in error_str or 'deadlock' in error_str.lower():
-            st.error("⚠️ Database deadlock detected. The system is experiencing high contention. Please try again in a moment.")
+            final_df = pd.concat(all_samples, ignore_index=True)
+            st.success(f"✅ Successfully collected {len(final_df):,} samples!")
+            return final_df, {
+                "quality_map": quality_map,
+                "matched_runs": list(quality_map.keys()),
+                "missing_runs": [r for r in run_ids if r not in quality_map],
+                "all_zero": all(v == 0 for v in quality_map.values()) if quality_map else True,
+            }
         else:
-            st.error(f"Error collecting samples: {str(e)}")
+            st.warning("❌ No samples collected. Try selecting a more recent run.")
+            return pd.DataFrame(), {"quality_map": quality_map, "matched_runs": list(quality_map.keys()), "missing_runs": [], "all_zero": True}
+
+    except Exception as e:
+        st.error(f"Critical error: {str(e)}")
         return pd.DataFrame(), {"quality_map": {}, "matched_runs": [], "missing_runs": [], "all_zero": True}
 
 

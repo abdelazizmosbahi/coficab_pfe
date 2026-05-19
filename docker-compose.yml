@@ -1,14 +1,7 @@
 ﻿version: '3.8'
 
-# ========================================
-# Cable Manufacturing AI - Docker Compose
-# Production configuration with ODBC 18
-# ========================================
-
 services:
   cable-ai:
-    # Build from local Dockerfile (for development)
-    # For production, pull from GHCR: ghcr.io/yourusername/cable-maintenance-ai:latest
     build:
       context: ./cable_maintenance_ai
       dockerfile: Dockerfile
@@ -16,55 +9,40 @@ services:
     image: cable-manufacturing-ai:latest
     container_name: cable-manufacturing-ai
     
-    # ========================================
-    # Environment File
-    # Load all variables from .env file
-    # ========================================
+    # Load environment variables from .env
     env_file:
       - .env
     
-    # ========================================
-    # Networking
-    # ========================================
     ports:
       - "8501:8501"
     
-    # ========================================
-    # Environment Configuration
-    # Load from .env file via env_file above
-    # ========================================
     environment:
-      # Database Configuration (from .env file)
       DB_HOST: ${DB_HOST}
       DB_PORT: ${DB_PORT}
       DB_USER: ${DB_USER}
       DB_PASSWORD: ${DB_PASSWORD}
       DB_NAME: ${DB_NAME}
-      
-      # AI Service Configuration (from .env file)
       MISTRAL_API_KEY: ${MISTRAL_API_KEY}
       
-      # Streamlit Configuration
       STREAMLIT_SERVER_HEADLESS: "true"
       STREAMLIT_LOGGER_LEVEL: "error"
       STREAMLIT_CLIENT_TOOLBARPOSITION: "hidden"
       STREAMLIT_CLIENT_SHOWSIDEBARINITIALSTATE: "collapsed"
       STREAMLIT_SERVER_ENABLECORS: "false"
       STREAMLIT_SERVER_ENABLEXSRFPROTECTION: "true"
-    
+
     # ========================================
-    # Logging Configuration
+    # Volumes - Uncomment for Development
     # ========================================
+    volumes:
+      - ./cable_maintenance_ai:/app
+
     logging:
       driver: "json-file"
       options:
         max-size: "10m"
         max-file: "3"
-        labels: "app=cable-ai"
-    
-    # ========================================
-    # Resource Limits
-    # ========================================
+
     deploy:
       resources:
         limits:
@@ -74,51 +52,18 @@ services:
           cpus: '1'
           memory: 1G
     
-    # ========================================
-    # Restart Policy
-    # ========================================
     restart: unless-stopped
     
-    # ========================================
-    # Health Check
-    # ========================================
     healthcheck:
       test: ["CMD", "python", "-c", "import sqlalchemy; print('OK')"]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 40s
-    
-    # ========================================
-    # Volumes (optional for development)
-    # Uncomment for live code reload during development
-    # ========================================
-    # volumes:
-    #   - ./cable_maintenance_ai:/app
-    
-    # ========================================
-    # Network
-    # ========================================
+
     networks:
       - cable-ai-network
 
-# ========================================
-# Networks
-# ========================================
 networks:
   cable-ai-network:
     driver: bridge
-
-# ========================================
-# Usage Instructions
-# ========================================
-# Development:
-#   1. Create .env file with required variables (see .env.example)
-#   2. docker-compose up -d
-#   3. View logs: docker-compose logs -f cable-ai
-#
-# Production (from GitHub Container Registry):
-#   1. Create .env file with required variables
-#   2. docker-compose pull  (fetch latest image)
-#   3. docker-compose up -d
-#   4. To use specific version: IMAGE_TAG=sha-abc123 docker-compose up -d
