@@ -62,7 +62,15 @@ def apply_coficab_theme():
             background: radial-gradient(circle at 10% 15%, #ffffff 0%, #f7f9fb 35%, #eef2f6 100%);
             padding-top: 56px;
         }
-        [data-testid="stHeader"] { background: transparent; }
+        [data-testid="stHeader"] { 
+            background: transparent;
+            height: 0 !important;
+            min-height: 0 !important;
+            padding: 0 !important;
+            margin: 0 !important;
+            overflow: hidden !important;
+        }
+        [data-testid="stToolbar"] { display: none !important; }
         [data-testid="stSidebar"] { display: none !important; }
         </style>
         <script>
@@ -105,10 +113,10 @@ def apply_coficab_theme():
         .cofi-hero__logo { width: 160px; height: auto; filter: drop-shadow(0 6px 14px rgba(7, 18, 30, 0.35)); }
         .cofi-nav {
             display: flex; align-items: center; justify-content: space-between; gap: 24px;
-            padding: 10px 24px; margin: 0;
+            padding: 8px 24px; margin: 0;
             background: linear-gradient(120deg, #0c1f31 0%, #133657 55%, #1f4a6f 100%);
             box-shadow: 0 14px 32px rgba(7, 18, 30, 0.2);
-            position: fixed; top: 0; left: 0; right: 0; z-index: 1000;
+            position: fixed; top: 0; left: 0; right: 0; z-index: 1000; height: 56px; width: 100%;
         }
         .cofi-nav__left { display: flex; align-items: center; gap: 14px; }
         .cofi-nav__logo { height: 36px; width: auto; }
@@ -126,6 +134,8 @@ def apply_coficab_theme():
             font-weight: 700; font-size: 14px;
         }
         .cofi-nav__logout:hover { background: rgba(255, 221, 191, 0.16); color: #ffffff; }
+        /* Ensure only one navbar is displayed (hide duplicates) */
+        .cofi-nav:not(:first-of-type) { display: none !important; }
         [data-testid="stMetric"] {
             background: #ffffff; border: 1px solid var(--cof-ash); border-radius: 14px;
             padding: 14px 16px; box-shadow: 0 6px 18px rgba(12, 31, 49, 0.08);

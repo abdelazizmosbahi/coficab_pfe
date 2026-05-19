@@ -9,11 +9,21 @@ from datetime import datetime
 
 import streamlit as st
 
+# ========================================
+# Python Path Configuration
+# ========================================
+# Add both app directory and project root to sys.path
+# so imports work both locally and in Docker
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
+PROJECT_ROOT = os.path.dirname(APP_DIR)
+
 if APP_DIR not in sys.path:
     sys.path.insert(0, APP_DIR)
+if PROJECT_ROOT not in sys.path:
+    sys.path.insert(0, PROJECT_ROOT)
 
-from auth_helpers import ensure_page_authentication, render_nav_bar  # noqa: E402
+from auth_helpers import ensure_page_authentication, render_nav_bar, initialize_users_table  # noqa: E402
+from db_helpers import initialize_machine_configuration_table  # noqa: E402
 
 
 st.set_page_config(
@@ -23,13 +33,37 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
+# ========================================
+# Initialize Database Schema (one-time)
+# ========================================
+# Create model_schema and required tables on app startup
+try:
+    initialize_users_table()
+    initialize_machine_configuration_table()
+except Exception as e:
+    st.error(f"⚠️ Database initialization warning: {e}")
+
 ensure_page_authentication("app.py")
 
 st.markdown(
     """
     <style>
     [data-testid="stAppViewContainer"] {
-        padding-top: 56px;
+        padding-top: 0px;
+    }
+    [data-testid="stHeader"] { 
+        background: rgba(255, 255, 255, 0.98) !important;
+        z-index: 999 !important;
+        position: sticky !important;
+        top: 0 !important;
+        height: 0 !important;
+        min-height: 0 !important;
+        padding: 0 !important;
+        margin: 0 !important;
+        overflow: hidden !important;
+    }
+    [data-testid="stToolbar"] { 
+        display: none !important;
     }
     [data-testid="stSidebar"] { display: none !important; }
     </style>

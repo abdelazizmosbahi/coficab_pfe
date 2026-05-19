@@ -1,0 +1,122 @@
+# name: Build and Push Docker Image to GHCR
+
+# # ========================================
+# # Triggers
+# # ========================================
+# on:
+#   push:
+#     branches:
+#       - main
+#     paths:
+#       - 'cable_maintenance_ai/**'
+#       - '.github/workflows/docker-build-push.yml'
+#       - 'docker-compose.yml'
+#   pull_request:
+#     branches:
+#       - main
+#     paths:
+#       - 'cable_maintenance_ai/**'
+#   workflow_dispatch:  # Allow manual trigger
+
+# # ========================================
+# # Environment Variables
+# # ========================================
+# env:
+#   REGISTRY: ghcr.io
+#   IMAGE_NAME: ${{ github.repository }}/cable-maintenance-ai
+
+# jobs:
+#   build-and-push:
+#     runs-on: ubuntu-latest
+    
+#     # ========================================
+#     # Permissions for GHCR access
+#     # ========================================
+#     permissions:
+#       contents: read
+#       packages: write
+    
+#     steps:
+#       # ========================================
+#       # Step 1: Checkout code
+#       # ========================================
+#       - name: Checkout repository
+#         uses: actions/checkout@v4
+      
+#       # ========================================
+#       # Step 2: Set up Docker Buildx
+#       # (For multi-platform builds and caching)
+#       # ========================================
+#       - name: Set up Docker Buildx
+#         uses: docker/setup-buildx-action@v3
+      
+#       # ========================================
+#       # Step 3: Log in to GitHub Container Registry
+#       # ========================================
+#       - name: Log in to GitHub Container Registry
+#         uses: docker/login-action@v3
+#         with:
+#           registry: ${{ env.REGISTRY }}
+#           username: ${{ github.actor }}
+#           password: ${{ secrets.GITHUB_TOKEN }}
+      
+#       # ========================================
+#       # Step 4: Extract metadata for Docker
+#       # ========================================
+#       - name: Extract metadata for Docker
+#         id: meta
+#         uses: docker/metadata-action@v5
+#         with:
+#           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+#           tags: |
+#             type=ref,event=branch
+#             type=semver,pattern={{version}}
+#             type=semver,pattern={{major}}.{{minor}}
+#             type=sha,prefix={{branch}}-
+#             type=raw,value=latest,enable={{is_default_branch}}
+      
+#       # ========================================
+#       # Step 5: Build and push Docker image
+#       # ========================================
+#       - name: Build and push Docker image
+#         uses: docker/build-push-action@v5
+#         with:
+#           context: ./cable_maintenance_ai
+#           file: ./cable_maintenance_ai/Dockerfile
+#           push: ${{ github.event_name != 'pull_request' }}
+#           tags: ${{ steps.meta.outputs.tags }}
+#           labels: ${{ steps.meta.outputs.labels }}
+#           cache-from: type=gha
+#           cache-to: type=gha,mode=max
+      
+#       # ========================================
+#       # Step 6: Image digest output (for debugging)
+#       # ========================================
+#       - name: Image digest
+#         if: github.event_name != 'pull_request'
+#         run: echo "Image pushed with digest: ${{ steps.docker_build.outputs.digest }}"
+
+#   # ========================================
+#   # Test Job (optional - runs after build)
+#   # ========================================
+#   test:
+#     needs: build-and-push
+#     runs-on: ubuntu-latest
+#     if: github.event_name != 'pull_request'
+    
+#     steps:
+#       - name: Checkout repository
+#         uses: actions/checkout@v4
+      
+#       - name: Run security scan with Trivy
+#         uses: aquasecurity/trivy-action@master
+#         with:
+#           image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+#           format: 'sarif'
+#           output: 'trivy-results.sarif'
+      
+#       - name: Upload Trivy results to GitHub Security tab
+#         uses: github/codeql-action/upload-sarif@v2
+#         if: always()
+#         with:
+#           sarif_file: 'trivy-results.sarif'

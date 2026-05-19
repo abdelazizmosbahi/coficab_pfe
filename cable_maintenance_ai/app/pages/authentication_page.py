@@ -38,10 +38,20 @@ def apply_auth_theme() -> None:
             color: var(--cof-navy);
         }
         [data-testid="stAppViewContainer"] {
-            background: radial-gradient(circle at 10% 15%, #ffffff 0%, #f7f9fb 35%, #eef2f6 100%);
-            padding-top: 56px;
+            background: radial-gradient(circle at 10% 15%, #ffffff 0%, #f7f9fb 35%, #eef2f6 100%) !important;
         }
-        [data-testid="stHeader"] { background: transparent; }
+        [data-testid="stHeader"] { 
+            background: transparent !important;
+            z-index: 999 !important;
+            height: 0 !important;
+            min-height: 0 !important;
+            padding: 0 !important;
+            margin: 0 !important;
+            overflow: hidden !important;
+        }
+        [data-testid="stToolbar"] { 
+            display: none !important;
+        }
         [data-testid="stSidebar"] { display: none !important; }
         </style>
         <script>

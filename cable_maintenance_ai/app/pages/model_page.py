@@ -5,7 +5,6 @@ Styled to match opcua_realtime_page (Coficab theme, nav, hero, monitoring layout
 """
 
 import streamlit as st
-import streamlit_autorefresh as star
 import pandas as pd
 import numpy as np
 import os
@@ -225,6 +224,15 @@ def apply_coficab_theme():
 
         [data-testid="stHeader"] {
             background: transparent;
+            height: 0 !important;
+            min-height: 0 !important;
+            padding: 0 !important;
+            margin: 0 !important;
+            overflow: hidden !important;
+        }
+
+        [data-testid="stToolbar"] {
+            display: none !important;
         }
 
         [data-testid="stSidebar"] {
@@ -306,7 +314,7 @@ def apply_coficab_theme():
             align-items: center;
             justify-content: space-between;
             gap: 24px;
-            padding: 10px 24px;
+            padding: 8px 24px;
             margin: 0;
             border-radius: 0;
             background: linear-gradient(120deg, #0c1f31 0%, #133657 55%, #1f4a6f 100%);
@@ -316,6 +324,8 @@ def apply_coficab_theme():
             left: 0;
             right: 0;
             z-index: 1000;
+            height: 56px;
+            width: 100%;
         }
 
         .cofi-nav__left {
@@ -376,6 +386,17 @@ def apply_coficab_theme():
             color: #ffffff;
         }
 
+        /* Ensure only one navbar is displayed (hide duplicates) */
+        .cofi-nav:not(:first-of-type) {
+            display: none !important;
+        }
+
+        /* Remove any native Streamlit navbar that might appear */
+        [data-testid="stHeader"] + * {
+            margin-top: 0 !important;
+            padding-top: 0 !important;
+        }
+
         [data-testid="stMetric"] {
             background: transparent !important;
             border: none;
@@ -384,18 +405,9 @@ def apply_coficab_theme():
         }
 
         [data-testid="stVerticalBlockBorderWrapper"] {
-            background: #ffffff;
-            border: 1px solid var(--cof-ash) !important;
-            border-radius: 14px !important;
-            padding: 14px 16px !important;
-            box-shadow: 0 6px 18px rgba(12, 31, 49, 0.08) !important;
-            transition: all 0.3s ease;
+            /* Disabled custom styling to prevent 'page within page' effect with autorefresh */
+            display: block;
         }
-
-        [data-testid="stVerticalBlockBorderWrapper"]:hover {
-            border-color: var(--cof-orange) !important;
-            box-shadow: 0 8px 20px rgba(245, 124, 0, 0.15) !important;
-            transform: translateY(-2px);
         }
 
         [data-testid="stVerticalBlockBorderWrapper"] .stButton > button {
@@ -1518,7 +1530,6 @@ if fp_to_show or rca_to_show:
             with col1:
                 if st.button("⬅️ Back to Dashboard", use_container_width=True):
                     st.session_state.pop("fullscreen_param", None)
-                    st.rerun()
             
             param_display_name = fp_to_show.split(".")[-1].replace("_ACT", "")
             st.markdown(f'<p class="cofi-section-title" style="margin-top:0;">📈 Real-Time Traceability: {param_display_name}</p>', unsafe_allow_html=True)
@@ -1550,7 +1561,6 @@ if fp_to_show or rca_to_show:
                     else:
                         # Clear snapshot when switching back to quick view
                         st.session_state.pop("fullscreen_full_timeline_snapshot_time", None)
-                    st.rerun()
             
             st.markdown("---")
             
@@ -1586,11 +1596,8 @@ if fp_to_show or rca_to_show:
             if not show_full_timeline:
                 st.markdown("---")
                 with st.spinner("⏳ Updating every second from cache..."):
-                    import time
                     time.sleep(1)  # 1 second refresh interval
-                
-                # Rerun with cached data (instant, no blocking)
-                st.rerun()
+                st.rerun()  # Refresh the page after sleep
             else:
                 # Full timeline is static - show message and allow user to switch back
                 st.markdown("---")
@@ -1600,16 +1607,16 @@ if fp_to_show or rca_to_show:
                 if st.button("↩️ Back to Quick View (Resume Updates)", use_container_width=True, key="back_to_quick_view"):
                     st.session_state["fullscreen_show_full_timeline"] = False
                     st.session_state.pop("fullscreen_full_timeline_snapshot_time", None)
-                    st.rerun()
+            
+            st.stop()  # Stop rendering main content when in traceability view
         
         # FULLSCREEN ROOT CAUSE ANALYSIS VIEW
-        if rca_to_show:
+        elif rca_to_show:
             st.markdown("---")
             col1, _ = st.columns([1, 4])
             with col1:
                 if st.button("⬅️ Back to Dashboard", use_container_width=True):
                     st.session_state.pop("fullscreen_rca_param", None)
-                    st.rerun()
 
             rca_param_name = rca_to_show.get("name", "Unknown")
             rca_current_val = rca_to_show.get("val")
@@ -1682,9 +1689,11 @@ Please provide a concise root cause analysis with:
 
             if st.button("⬅️ Back to Dashboard", key="rca_back_button", use_container_width=True):
                 st.session_state.pop("fullscreen_rca_param", None)
-                st.rerun()
 
             st.stop()
+        
+        # Final safety stop to prevent main content from rendering during fullscreen views
+        st.stop()
 
 
 if "execution_started" not in st.session_state:
@@ -1723,9 +1732,20 @@ for _, config in configs_df.iterrows():
     config_display[display_name] = cid
 
 st.subheader("📋 Select Configuration")
+
+# Find the index of the currently selected configuration
+config_options = list(config_display.keys())
+current_index = 0
+if st.session_state.selected_config is not None:
+    for idx, (display_name, config_id) in enumerate(config_display.items()):
+        if config_id == st.session_state.selected_config:
+            current_index = idx
+            break
+
 selected_config_display = st.selectbox(
     "Configuration to analyse / monitor",
-    options=list(config_display.keys()),
+    options=config_options,
+    index=current_index,
     key="config_selector",
     label_visibility="collapsed",
 )
@@ -1764,6 +1784,9 @@ else:
     cid = config_id
     mp = monitoring_params
     rp = recipe_params
+    
+    # Combine recipe and monitoring params for tag queries
+    tag_params = list(dict.fromkeys(list(mp) + list(rp)))
     
     # ── Load reference datasheet from latest analysis results (CACHED) ─────
     reference_df = _cached_load_reference_df(mc, cid, analysis_results)
@@ -1925,7 +1948,6 @@ else:
             if is_machine_active and ok_pct < 50:
                 if st.button("🤖 Analyze Root Cause", use_container_width=True):
                     st.session_state["show_mistral_analysis"] = True
-                    st.rerun()
 
         if machine_datasheet:
             st.markdown(
@@ -1939,19 +1961,12 @@ else:
         st.info("ℹ️ Live values load from MachineTagValue table in real-time.")
 
     # Fragment function: only this part refreshes with auto-refresh (every 1 second)
-    @st.fragment(run_every=1)
     def render_monitoring_values():
-        """Fragment that updates monitoring values without rerunning the entire page. Updates every 1 second."""
-        import time
-        print(f"[render_monitoring_values] Running fragment at {time.time()}")
-        
-        # Check machine status based on LineSpeed (real-time check every second)
+        """Load and store monitoring values for display (called every auto-refresh cycle)."""
+        # Check machine status based on LineSpeed (real-time check)
         machine_status_result = get_machine_status_for(mc) if mc else {}
         machine_active_now = machine_status_result.get("active", False)
         machine_status_now = machine_status_result.get("status", "🔴 Inactive")
-        
-        tag_params = list(dict.fromkeys(list(rp) + list(mp)))
-        print(f"[render_monitoring_values] Tag params count: {len(tag_params)}, Machine active: {machine_active_now}")
         latest_values = load_current_machine_values(mc, tag_params) if tag_params else {}
         
         # DEBUG: Track data loading
@@ -2057,10 +2072,8 @@ else:
     machine_active_now = monitoring_data.get("machine_active", False)
     machine_status_now = monitoring_data.get("machine_status", "🔴 Inactive")
     
-    # ── Fragment 2: Render updated parameter cards every second ──
-    @st.fragment(run_every=1)
     def render_parameter_cards():
-        """Fragment that re-renders parameter value cards every second with fresh data."""
+        """Re-render parameter value cards with fresh data (called every auto-refresh cycle)."""
         # Get the latest merged_readings from session state
         merged_readings = st.session_state.get("_merged_readings", {})
         
@@ -2159,7 +2172,6 @@ else:
                             st.markdown("<div style='display: flex; flex-direction: column; gap: 6px;'>", unsafe_allow_html=True)
                             if exists_in_db and st.button("📈", key=f"card_{param}", help=f"View traceability: {label}"):
                                 st.session_state["fullscreen_param"] = param
-                                st.rerun()
                             if exists_in_db and not (current_val is None or lo is None or hi is None) and not (lo <= current_val <= hi):
                                 if st.button("🔍", key=f"rca_icon_{param}", help=f"Root cause analysis: {label}"):
                                     st.session_state["fullscreen_rca_param"] = {
@@ -2169,7 +2181,6 @@ else:
                                         "max": hi,
                                         "status": "🔴 OUT OF RANGE",
                                     }
-                                    st.rerun()
                             st.markdown("</div>", unsafe_allow_html=True)
                         with col_metric:
                             if param_source == "not_in_db":
@@ -2275,80 +2286,71 @@ else:
         prob_color = "#f57c00"
         prob_status = "STANDBY" if "Standby" in str(machine_status_now) else "INACTIVE"
 
-    # DEBUG: Show data status if all values are None
-    if all(v.get("value") is None for v in merged_readings.values()):
-        with st.expander("🔍 DEBUG: No Data Diagnosis", expanded=False):
-            st.warning("All parameter values are None. Checking data flow...")
-            tag_params = list(dict.fromkeys(list(rp) + list(mp)))
-            st.write(f"**Parameters queried ({len(tag_params)}):**")
-            if tag_params:
-                for p in tag_params[:5]:
-                    st.code(p)
-                if len(tag_params) > 5:
-                    st.write(f"... and {len(tag_params) - 5} more")
-            
-            st.write(f"**Merged readings status:**")
-            with_values = sum(1 for v in merged_readings.values() if v.get("value") is not None)
-            st.write(f"- Total params in merged_readings: {len(merged_readings)}")
-            st.write(f"- Params with actual values: {with_values}")
-            st.write(f"- MachineCode: {mc}")
-            
-            st.write("**Sample merged_readings entries (first 3):**")
-            for param, data in list(merged_readings.items())[:3]:
-                st.write(f"  {param}: {data}")
-
-    @st.dialog("🤖 Mistral Root Cause Analysis")
     def run_mistral_analysis(out_of_range_params, mach_code, probability):
-        st.warning(f"Prediction Probability dropped to {probability}% due to out of spec parameters.")
-        
-        if not out_of_range_params:
-            st.info("No parameters are currently labeled out of range. The probability may be artificially low due to variance.")
-            if st.button("Close Modal"):
-                st.session_state.pop("show_mistral_analysis", None)
-                st.rerun()
-            return
+        """Modal for Mistral Root Cause Analysis - displayed via session state."""
+        with st.container():
+            st.markdown("### 🤖 Mistral Root Cause Analysis")
+            st.warning(f"Prediction Probability dropped to {probability}% due to out of spec parameters.")
             
-        st.markdown("**Out of Range Summary:**")
-        for p in out_of_range_params:
-            st.markdown(f"- **{p['name']}**: `{p['val']:.2f}` (Range: [{p['min']:.1f}, {p['max']:.1f}])")
-            
-        st.markdown("---")
-        
-        api_key = os.getenv("MISTRAL_API_KEY")
-        if not api_key:
-            st.error("Error: MISTRAL_API_KEY not found in environment.")
-            return
-            
-        with st.spinner("🧠 Generating insights from Mistral AI..."):
-            prompt = f"You are an expert industrial machine maintenance AI.\nThe machine '{mach_code}' has a dropping quality prediction probability of {probability}%.\nThe following parameters are currently out of bounds:\n"
-            for p in out_of_range_params:
-                prompt += f"- {p['name']}: {p['val']:.2f} (Expected Range: {p['min']:.1f} to {p['max']:.1f})\n"
+            if not out_of_range_params:
+                st.info("No parameters are currently labeled out of range. The probability may be artificially low due to variance.")
+                if st.button("Close Modal"):
+                    st.session_state.pop("show_mistral_analysis", None)
+                return
                 
-            prompt += "\nProvide a brief root-cause analysis and actionable bullet-point tips to fix this to bring parameters back in range."
+            st.markdown("**Out of Range Summary:**")
+            for p in out_of_range_params:
+                st.markdown(f"- **{p['name']}**: `{p['val']:.2f}` (Range: [{p['min']:.1f}, {p['max']:.1f}])")
+                
+            st.markdown("---")
             
-            try:
-                if not Mistral:
-                    st.error("❌ Error: Mistral SDK not installed. Please install it with: pip install mistralai")
-                else:
-                    client = Mistral(api_key=api_key)
-                    response = client.chat.complete(
-                        model="mistral-large-latest",
-                        messages=[
-                            {"role": "user", "content": prompt}
-                        ]
-                    )
-                    st.markdown(response.choices[0].message.content)
-            except Exception as e:
-                st.error(f"Mistral API Error: {str(e)}")
-            
-        if st.button("Close Modal", type="primary"):
-            st.session_state.pop("show_mistral_analysis", None)
-            st.rerun()
+            api_key = os.getenv("MISTRAL_API_KEY")
+            if not api_key:
+                st.error("Error: MISTRAL_API_KEY not found in environment.")
+                if st.button("Close Modal"):
+                    st.session_state.pop("show_mistral_analysis", None)
+                return
+                
+            with st.spinner("🧠 Generating insights from Mistral AI..."):
+                prompt = f"You are an expert industrial machine maintenance AI.\nThe machine '{mach_code}' has a dropping quality prediction probability of {probability}%.\nThe following parameters are currently out of bounds:\n"
+                for p in out_of_range_params:
+                    prompt += f"- {p['name']}: {p['val']:.2f} (Expected Range: {p['min']:.1f} to {p['max']:.1f})\n"
+                    
+                prompt += "\nProvide a brief root-cause analysis and actionable bullet-point tips to fix this to bring parameters back in range."
+                
+                try:
+                    if not Mistral:
+                        st.error("❌ Error: Mistral SDK not installed. Please install it with: pip install mistralai")
+                    else:
+                        client = Mistral(api_key=api_key)
+                        response = client.chat.complete(
+                            model="mistral-large-latest",
+                            messages=[
+                                {"role": "user", "content": prompt}
+                            ]
+                        )
+                        st.markdown(response.choices[0].message.content)
+                except Exception as e:
+                    st.error(f"Mistral API Error: {str(e)}")
+                
+            st.markdown("---")
+            if st.button("Close Modal", type="primary", key="mistral_close_modal"):
+                st.session_state.pop("show_mistral_analysis", None)
 
     if st.session_state.get("show_mistral_analysis"):
-        run_mistral_analysis(out_of_range_list, mc, ok_pct)
+        # Show modal container with border
+        modal_container = st.container(border=True)
+        with modal_container:
+            run_mistral_analysis(out_of_range_list, mc, ok_pct)
 
-    st.markdown("---")
+    # Add auto-refresh every second for real-time updates (but NOT when viewing traceability)
+    fp_to_show = st.session_state.get("fullscreen_param")
+    rca_to_show = st.session_state.get("fullscreen_rca_param")
+    
+    if not (fp_to_show or rca_to_show):
+        time.sleep(1)
+        st.rerun()
+    
     st.markdown('<p class="cofi-section-title">📈 Session summary</p>', unsafe_allow_html=True)
     c1, c2, c3, c4 = st.columns(4)
     with c1:

@@ -21,8 +21,7 @@ pyodbc==5.0.1
 requests==2.31.0
 
 # Web Framework
-streamlit==1.28.1
-streamlit-autorefresh==1.0.0
+streamlit==1.32.0
 plotly==5.17.0
 
 # Notebook Execution & Parameterization
