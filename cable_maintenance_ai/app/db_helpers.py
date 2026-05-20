@@ -5,6 +5,7 @@ Shared MySQL data loading helpers for all app pages.
 import json
 import os
 import sys
+import traceback
 import requests
 from datetime import datetime
 from pathlib import Path
@@ -1642,8 +1643,13 @@ def load_current_machine_values(machine_code: str, parameters: list) -> dict:
         
         # DIAGNOSTIC: See what OpcNodeIds exist in database for this machine
         with get_engine().connect() as c:
+            # FIX: Remove DISTINCT TOP ... ORDER BY pattern - use subquery instead
             diag_df = pd.read_sql(
-                text(f"SELECT DISTINCT TOP 10 OpcNodeId FROM MachineTagValue WITH (NOLOCK) WHERE MachineCode = :m ORDER BY OpcNodeId"),
+                text("""
+                    SELECT DISTINCT OpcNodeId 
+                    FROM MachineTagValue WITH (NOLOCK) 
+                    WHERE MachineCode = :m
+                """),
                 c,
                 params={"m": machine_code}
             )
@@ -2176,17 +2182,85 @@ def get_last_10_runs_for_machine_with_recipe(machine_code: str, opcnodeids: list
         st.error(traceback.format_exc())
         return pd.DataFrame()
 
+
+def filter_runs_by_available_data(machine_code: str, runs_df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Filter production runs to only those with available sensor data.
+    
+    Gets database data time range and excludes runs that occurred before data collection started.
+    This prevents users from selecting runs that have no corresponding sensor data.
+    """
+    if runs_df.empty or not machine_code:
+        return runs_df
+
+    try:
+        # Get database time boundaries for this machine
+        with get_engine().connect() as c:
+            bounds_query = """
+                SELECT 
+                    MIN(SourceTimestamp) as db_start,
+                    MAX(SourceTimestamp) as db_end
+                FROM MachineTagValue WITH (NOLOCK)
+                WHERE MachineCode = :machine
+            """
+            bounds_df = pd.read_sql(text(bounds_query), c, params={"machine": machine_code})
+        
+        if bounds_df.empty or pd.isna(bounds_df['db_start'].iloc[0]):
+            # No data in database
+            st.warning(f"⚠️ No sensor data found for {machine_code}")
+            return runs_df
+        
+        db_start = pd.to_datetime(bounds_df['db_start'].iloc[0]).tz_localize(None)
+        db_end = pd.to_datetime(bounds_df['db_end'].iloc[0]).tz_localize(None)
+        
+        # Allow 12-hour buffer before data starts (to catch data near boundaries)
+        cutoff_time = db_start - pd.Timedelta(hours=12)
+        
+        # Filter runs: keep only those that end after cutoff (have potential data)
+        filtered = []
+        for _, run in runs_df.iterrows():
+            run_end = pd.to_datetime(run['EndTs']).tz_localize(None)
+            if run_end >= cutoff_time:
+                filtered.append(run)
+        
+        if len(filtered) < len(runs_df):
+            st.info(f"📊 Showing {len(filtered)}/{len(runs_df)} runs with available sensor data")
+            st.caption(f"Database data: {db_start} to {db_end}")
+            return pd.DataFrame(filtered)
+        
+        return runs_df
+    
+    except Exception as e:
+        st.warning(f"Could not filter by data availability: {str(e)}")
+        return runs_df
+
+
 @st.cache_data(ttl=30)
 def get_all_params_in_time_window(machine_code: str, start_ts, end_ts) -> list:
-    """Smart discovery: Try run window, then fallback gracefully"""
+    """
+    Discover parameters for a specific production run - SQL Server compatible.
+    
+    Uses 3-tier strategy without problematic DISTINCT+TOP+ORDER BY patterns.
+    Tier 1: Run window with ±2 hour buffer
+    Tier 2: Exact run times with ±6 hour buffer (generous for data alignment)
+    Tier 3: All historical parameters
+    """
     try:
         start_ts = pd.to_datetime(start_ts).tz_localize(None)
         end_ts = pd.to_datetime(end_ts).tz_localize(None)
 
+        # Debug info
+        with st.expander("🔧 Parameter Discovery Debug Info"):
+            st.write(f"Machine: {machine_code}")
+            st.write(f"Selected run start: {start_ts}")
+            st.write(f"Selected run end: {end_ts}")
+
+        # ===== TIER 1: Try run window with ±2 hour buffer =====
         start_buffer = start_ts - pd.Timedelta(hours=2)
         end_buffer = end_ts + pd.Timedelta(hours=2)
 
-        query = """
+        # SAFE SQL: No TOP, no ORDER BY with DISTINCT
+        tier1_query = """
             SELECT DISTINCT OpcNodeId
             FROM MachineTagValue WITH (NOLOCK)
             WHERE MachineCode = :machine
@@ -2195,38 +2269,80 @@ def get_all_params_in_time_window(machine_code: str, start_ts, end_ts) -> list:
         """
 
         with get_engine().connect() as c:
-            df = pd.read_sql(text(query), c, params={
+            df = pd.read_sql(text(tier1_query), c, params={
                 "machine": machine_code,
                 "start_ts": start_buffer,
                 "end_ts": end_buffer
             })
 
         if not df.empty:
-            params = df['OpcNodeId'].dropna().unique().tolist()
-            st.success(f"✅ Found {len(params)} parameters in run time window")
+            params = sorted(df['OpcNodeId'].dropna().unique().tolist())
+            st.success(f"✅ Found {len(params)} parameters using Tier 1 strategy (±2hr buffer)")
+            with st.expander("🔧 Parameter Discovery Debug Info"):
+                st.write(f"Tier 1 range: {start_buffer} to {end_buffer}")
+                st.write(f"Parameters found: {len(params)}")
             return params
 
-        # Fallback
-        st.warning(f"⚠️ No data found in selected run window ({start_ts.date()}). Using latest available parameters.")
-        fallback_query = """
-            SELECT DISTINCT TOP 250 OpcNodeId 
+        # ===== TIER 2: Generous run window (±6 hours buffer) =====
+        st.info("⚠️  Tier 1 empty. Trying Tier 2 (run window ±6 hours)...")
+        
+        start_generous = start_ts - pd.Timedelta(hours=6)
+        end_generous = end_ts + pd.Timedelta(hours=6)
+        
+        tier2_query = """
+            SELECT DISTINCT OpcNodeId
             FROM MachineTagValue WITH (NOLOCK)
             WHERE MachineCode = :machine
-            ORDER BY SourceTimestamp DESC
+              AND SourceTimestamp >= :start_ts 
+              AND SourceTimestamp <= :end_ts
         """
 
         with get_engine().connect() as c:
-            df_fallback = pd.read_sql(text(fallback_query), c, params={"machine": machine_code})
+            df_exact = pd.read_sql(text(tier2_query), c, params={
+                "machine": machine_code,
+                "start_ts": start_generous,
+                "end_ts": end_generous
+            })
 
-        params = df_fallback['OpcNodeId'].dropna().unique().tolist()
-        st.info(f"📊 Using {len(params)} most recent parameters for this machine")
-        return params
+        if not df_exact.empty:
+            params = sorted(df_exact['OpcNodeId'].dropna().unique().tolist())
+            st.warning(f"📊 Found {len(params)} parameters using Tier 2 strategy (±6hr buffer)")
+            with st.expander("🔧 Parameter Discovery Debug Info"):
+                st.write(f"Tier 2 range: {start_generous} to {end_generous}")
+                st.write(f"Parameters found: {len(params)}")
+            return params
+
+        # ===== TIER 3: All historical parameters for machine =====
+        st.info("⚠️  Tiers 1 & 2 empty. Using Tier 3 (all historical parameters)...")
+        
+        tier3_query = """
+            SELECT DISTINCT OpcNodeId
+            FROM MachineTagValue WITH (NOLOCK)
+            WHERE MachineCode = :machine
+        """
+
+        with get_engine().connect() as c:
+            df_all = pd.read_sql(text(tier3_query), c, params={"machine": machine_code})
+
+        if not df_all.empty:
+            params = sorted(df_all['OpcNodeId'].dropna().unique().tolist())
+            st.info(f"📊 Using Tier 3 strategy: {len(params)} all-time parameters for {machine_code}")
+            with st.expander("🔧 Parameter Discovery Debug Info"):
+                st.write(f"Tier 3: All-time query")
+                st.write(f"Parameters found: {len(params)}")
+            return params
+
+        # ===== NO PARAMETERS FOUND =====
+        st.error(f"❌ No parameters found for {machine_code} in any tier")
+        return []
 
     except Exception as e:
-        st.error(f"Parameter discovery error: {str(e)}")
+        st.error(f"❌ Parameter discovery failed: {str(e)}")
+        st.debug(f"Traceback: {traceback.format_exc()}")
         return []
     
-    
+
+
 def get_recent_runs_for_sample_collection(machine_code: str, limit: int = 10) -> pd.DataFrame:
     """
     Get the most recent production runs for a machine.
@@ -2262,15 +2378,22 @@ def get_recent_runs_for_sample_collection(machine_code: str, limit: int = 10) ->
 
 
 def get_labeled_samples_from_runs(machine_code: str, runs: pd.DataFrame,
-                                  param_list: list, samples_per_run: int = 1500) -> tuple:
+                                  param_list: list, samples_per_run: int = 800) -> tuple:
+    """Broad historical collection - less strict on time windows"""
     if runs.empty or not param_list:
-        return pd.DataFrame(), {"quality_map": {}, "matched_runs": [], "missing_runs": [], "all_zero": True}
+        return pd.DataFrame(), {}
 
     all_samples = []
     run_ids = runs['RunId'].tolist()
 
     try:
-        # Quality lookup
+        # Debug: Show run info
+        with st.expander("🔧 Sample Collection Debug Info"):
+            st.write(f"Total runs: {len(runs)}")
+            st.write(f"Total parameters to query: {len(param_list)}")
+            for idx, run in runs.iterrows():
+                st.write(f"  Run {idx}: ID={run.get('RunId')}, Start={run.get('StartTs')}, End={run.get('EndTs')}")
+
         with get_engine().connect() as c:
             run_ids_str = ','.join([f"'{r}'" for r in run_ids])
             quality_df = pd.read_sql(
@@ -2279,28 +2402,40 @@ def get_labeled_samples_from_runs(machine_code: str, runs: pd.DataFrame,
             )
             quality_map = dict(zip(quality_df['RunId'], quality_df['IsOk'])) if not quality_df.empty else {}
 
-        st.info(f"✅ Quality data found for {len(quality_map)}/{len(run_ids)} runs")
+        st.info(f"Quality: {len(quality_map)}/{len(run_ids)} runs")
 
         progress_bar = st.progress(0)
-        total_tasks = len(param_list) * len(runs)
-        completed = 0
+        total = len(param_list) * len(runs)
+        done = 0
+        samples_found_count = 0
 
-        for param in param_list:
+        for param in param_list[:150]:   # Limit to avoid too many queries
             for _, run in runs.iterrows():
                 try:
                     with get_engine().connect() as c:
-                        start_ts = pd.to_datetime(run['StartTs']).tz_localize(None) - pd.Timedelta(minutes=90)
-                        end_ts = pd.to_datetime(run.get('EndTs', datetime.now())).tz_localize(None) + pd.Timedelta(minutes=90)
+                        # Get timestamps - handle NULL values
+                        start_ts_val = run.get('StartTs')
+                        end_ts_val = run.get('EndTs')
+                        
+                        if pd.isna(start_ts_val) or pd.isna(end_ts_val):
+                            # Skip runs with NULL timestamps
+                            done += 1
+                            progress_bar.progress(min(int(done / total * 100), 100))
+                            continue
+                        
+                        # Very wide buffer for historical data
+                        start_ts = pd.to_datetime(start_ts_val).tz_localize(None) - pd.Timedelta(hours=12)
+                        end_ts = pd.to_datetime(end_ts_val).tz_localize(None) + pd.Timedelta(hours=12)
 
                         samples_df = pd.read_sql(
                             text("""
                                 SELECT TOP (:limit) OpcNodeId, Value, SourceTimestamp
                                 FROM MachineTagValue WITH (NOLOCK)
-                                WHERE MachineCode = :machine 
+                                WHERE MachineCode = :machine
                                   AND OpcNodeId = :param
-                                  AND SourceTimestamp >= :start_ts 
+                                  AND SourceTimestamp >= :start_ts
                                   AND SourceTimestamp <= :end_ts
-                                ORDER BY SourceTimestamp DESC
+                                ORDER BY SourceTimestamp ASC
                             """),
                             c,
                             params={
@@ -2319,31 +2454,52 @@ def get_labeled_samples_from_runs(machine_code: str, runs: pd.DataFrame,
                                 samples_df['RunId'] = run['RunId']
                                 samples_df['IsOk'] = quality_map.get(run['RunId'], 0)
                                 all_samples.append(samples_df)
-                except:
+                                samples_found_count += len(samples_df)
+                except Exception as param_error:
+                    # Log but continue
                     pass
-                
-                completed += 1
-                progress_bar.progress(min(int((completed / total_tasks) * 100), 100))
+
+                done += 1
+                progress_bar.progress(min(int(done / total * 100), 100))
 
         progress_bar.empty()
 
         if all_samples:
             final_df = pd.concat(all_samples, ignore_index=True)
-            st.success(f"✅ Successfully collected {len(final_df):,} samples!")
-            return final_df, {
-                "quality_map": quality_map,
-                "matched_runs": list(quality_map.keys()),
-                "missing_runs": [r for r in run_ids if r not in quality_map],
-                "all_zero": all(v == 0 for v in quality_map.values()) if quality_map else True,
-            }
+            st.success(f"✅ Collected {len(final_df):,} samples from {samples_found_count} data points!")
+            return final_df, {"quality_map": quality_map, "matched_runs": list(quality_map.keys()), "missing_runs": [], "all_zero": True}
         else:
-            st.warning("❌ No samples collected. Try selecting a more recent run.")
+            st.error("❌ No data found for these runs and parameters.")
+            st.warning("🔍 **Possible causes:**")
+            st.warning("  • Production runs have NULL or invalid timestamps")
+            st.warning("  • Sensor data timestamps don't match run timestamps (timezone mismatch?)")
+            st.warning("  • Sensor data is from different time range than production runs")
+            with st.expander("💡 Troubleshooting: Show database time range"):
+                with get_engine().connect() as c:
+                    bounds = pd.read_sql(
+                        text("""
+                            SELECT 
+                                MIN(SourceTimestamp) as oldest_data,
+                                MAX(SourceTimestamp) as newest_data,
+                                COUNT(*) as total_rows,
+                                COUNT(DISTINCT MachineCode) as machine_count
+                            FROM MachineTagValue WITH (NOLOCK)
+                            WHERE MachineCode = :machine
+                        """),
+                        c,
+                        params={"machine": machine_code}
+                    )
+                    if not bounds.empty:
+                        st.write(f"Database data range: {bounds['oldest_data'].iloc[0]} to {bounds['newest_data'].iloc[0]}")
+                        st.write(f"Total rows for this machine: {bounds['total_rows'].iloc[0]:,}")
             return pd.DataFrame(), {"quality_map": quality_map, "matched_runs": list(quality_map.keys()), "missing_runs": [], "all_zero": True}
 
     except Exception as e:
-        st.error(f"Critical error: {str(e)}")
-        return pd.DataFrame(), {"quality_map": {}, "matched_runs": [], "missing_runs": [], "all_zero": True}
-
+        st.error(f"Error: {str(e)}")
+        import traceback
+        with st.expander("Error details"):
+            st.code(traceback.format_exc())
+        return pd.DataFrame(), {}
 
 def calculate_recipe_parameter_statistics_from_samples(labeled_samples: pd.DataFrame) -> pd.DataFrame:
     """

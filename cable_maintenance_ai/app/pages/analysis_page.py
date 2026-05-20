@@ -11,6 +11,7 @@ import base64
 from dotenv import load_dotenv
 from datetime import datetime
 from pathlib import Path
+from sqlalchemy import text
 
 
 # ─────────────────────────────────────────────────────────────
@@ -49,6 +50,8 @@ from db_helpers import (
     load_all_machines,
     load_all_parameters_for_machine,
     get_last_10_runs_for_machine_with_recipe,
+    filter_runs_by_available_data,
+    get_engine,
     get_all_params_in_time_window,
     get_labeled_samples_from_runs,
     calculate_recipe_parameter_statistics_from_samples,
@@ -425,18 +428,85 @@ if st.button(
     with st.spinner("Loading production runs..."):
         runs_df = get_last_10_runs_for_machine_with_recipe(selected_machine, selected_recipe_params)
 
-        st.write("**Debug Info:**")
-        st.write("Selected Machine:", selected_machine)
-        st.write("Selected Recipe Params Count:", len(selected_recipe_params))
-        
         if runs_df.empty:
-            st.error(f"No production runs found for {selected_machine} with the selected recipe parameters.")
+            st.error(f"❌ No production runs found for {selected_machine}")
             st.stop()
-        else:
-            st.success(f"✅ Loaded {len(runs_df)} production runs successfully!")
-            st.session_state["analysis_runs"] = runs_df
-            st.session_state.analysis_step = 3
-            st.rerun()   # Important: Force refresh to show next steps
+        
+        # Filter to only show runs with available sensor data
+        with st.spinner("Checking data availability..."):
+            filtered_runs_df = filter_runs_by_available_data(selected_machine, runs_df)
+        
+        if filtered_runs_df.empty:
+            st.error(f"❌ Data Gap: No production runs have corresponding sensor data")
+            st.markdown("""
+            ### Why This Happened
+            
+            The production runs in the database are from **May 17-18**, but sensor data collection 
+            only started on **May 19**. This means:
+            
+            - ✅ The database HAS production run records
+            - ✅ The database HAS sensor data 
+            - ❌ But they don't overlap in time
+            
+            ### What to Do
+            
+            **Option 1: Use Recent Runs**
+            - Check if there are any production runs from **May 19-20** (when data was being recorded)
+            - Those runs would have corresponding sensor data
+            
+            **Option 2: Backfill Historical Data**
+            - Import sensor data from before May 19
+            - Then older production runs can be analyzed
+            
+            **Option 3: Check Back Later**
+            - New production runs will be created in the future
+            - When they are, there will be sensor data available
+            
+            ### Technical Details
+            """)
+            with st.expander("📊 Database Time Range"):
+                try:
+                    with get_engine().connect() as c:
+                        bounds = pd.read_sql(
+                            text("""
+                                SELECT 
+                                    MIN(SourceTimestamp) as oldest_data,
+                                    MAX(SourceTimestamp) as newest_data,
+                                    COUNT(*) as total_rows
+                                FROM MachineTagValue WITH (NOLOCK)
+                                WHERE MachineCode = :machine
+                            """),
+                            c,
+                            params={"machine": selected_machine}
+                        )
+                        if not bounds.empty and not pd.isna(bounds['oldest_data'].iloc[0]):
+                            st.info(f"**Sensor data available:** {bounds['oldest_data'].iloc[0]} to {bounds['newest_data'].iloc[0]}")
+                            st.info(f"**Total sensor records:** {bounds['total_rows'].iloc[0]:,}")
+                        
+                        prod_runs = pd.read_sql(
+                            text("""
+                                SELECT 
+                                    MIN(StartTs) as oldest_run,
+                                    MAX(EndTs) as newest_run,
+                                    COUNT(*) as total_runs
+                                FROM productionrun WITH (NOLOCK)
+                                WHERE MachineCode = :machine
+                            """),
+                            c,
+                            params={"machine": selected_machine}
+                        )
+                        if not prod_runs.empty and not pd.isna(prod_runs['oldest_run'].iloc[0]):
+                            st.info(f"**Production runs available:** {prod_runs['oldest_run'].iloc[0]} to {prod_runs['newest_run'].iloc[0]}")
+                            st.info(f"**Total production runs:** {prod_runs['total_runs'].iloc[0]:,}")
+                except Exception as e:
+                    st.warning(f"Could not load database info: {str(e)}")
+            
+            st.stop()
+        
+        st.success(f"✅ Loaded {len(filtered_runs_df)} production runs with available data!")
+        st.session_state["analysis_runs"] = filtered_runs_df
+        st.session_state.analysis_step = 3
+        st.rerun()
 
 # ── Continue only if runs are loaded ─────────────────────────────────────
 if "analysis_runs" not in st.session_state:
@@ -474,34 +544,89 @@ with run_info_cols[1]:
 with run_info_cols[2]:
     st.metric("End Time", selected_run_row["EndTs"])
 
+# ── Diagnostic: Data Availability Check ─────────────────────────────────────
+st.markdown("---")
+st.subheader("🔍 Data Availability Diagnostic")
+
+col1, col2 = st.columns(2)
+with col1:
+    st.write("**Selected Run:**")
+    st.write(f"Start: {selected_run_id['StartTs']}")
+    st.write(f"End: {selected_run_id['EndTs']}")
+
+with col2:
+    try:
+        from db_helpers import get_engine
+        from sqlalchemy import text   # ← This was missing
+
+        with get_engine().connect() as c:
+            diag = pd.read_sql(text("""
+                SELECT 
+                    MIN(SourceTimestamp) as oldest_data,
+                    MAX(SourceTimestamp) as newest_data,
+                    COUNT(*) as total_rows
+                FROM MachineTagValue 
+                WHERE MachineCode = :machine
+            """), c, params={"machine": selected_machine})
+            
+            if not diag.empty:
+                st.write("**Database Content:**")
+                st.write(f"Oldest data : {diag['oldest_data'].iloc[0]}")
+                st.write(f"Newest data : {diag['newest_data'].iloc[0]}")
+                st.write(f"Total rows  : {diag['total_rows'].iloc[0]:,}")
+            else:
+                st.warning("No data found in MachineTagValue for this machine.")
+    except Exception as e:
+        st.error(f"Diagnostic failed: {e}")
+
+# Overlap check
+try:
+    from db_helpers import get_engine
+    from sqlalchemy import text
+
+    with get_engine().connect() as c:
+        overlap = pd.read_sql(text("""
+            SELECT COUNT(*) as overlapping_rows
+            FROM MachineTagValue 
+            WHERE MachineCode = :machine
+              AND SourceTimestamp BETWEEN :start_ts AND :end_ts
+        """), c, params={
+            "machine": selected_machine,
+            "start_ts": selected_run_id['StartTs'],
+            "end_ts": selected_run_id['EndTs']
+        })
+        st.caption(f"📊 Overlapping rows in selected run window: **{overlap['overlapping_rows'].iloc[0]}**")
+except Exception:
+    pass
+
+
+
 # ── Step 4: Discover Parameters ─────────────────────────────────────────────
 st.markdown("---")
 st.markdown('<p class="cofi-section-title">Step 4: Discover Parameters</p>', unsafe_allow_html=True)
-st.caption("Finding all parameters recorded during this run's time window.")
+st.caption("Finding all parameters that were recorded during the selected production run.")
 
-discovered_params = get_all_params_in_time_window(
-    selected_machine,
-    selected_run_id["StartTs"],
-    selected_run_id["EndTs"]
-)
-
-if not discovered_params:
-    st.warning("⚠️ No parameters found in the selected run window.")
-    st.info("Using fallback: showing recent parameters for this machine.")
-    # Use fallback from the function above
-    discovered_params = get_all_params_in_time_window(selected_machine, pd.Timestamp.now() - pd.Timedelta(days=1), pd.Timestamp.now())
+with st.spinner("Discovering parameters for this run..."):
+    discovered_params = get_all_params_in_time_window(
+        selected_machine,
+        selected_run_id["StartTs"],
+        selected_run_id["EndTs"]
+    )
 
 if discovered_params:
     st.success(f"✅ Discovered **{len(discovered_params)}** parameters")
     with st.expander("View discovered parameters", expanded=True):
+        params_df = pd.DataFrame({"OpcNodeId": discovered_params})
+        params_df.index = params_df.index + 1  # 1-based indexing for display
         st.dataframe(
-            pd.DataFrame({"OpcNodeId": discovered_params}),
+            params_df,
             use_container_width=True,
-            hide_index=True,
+            hide_index=False,
             height=400
         )
 else:
-    st.error("No parameters available for this machine at all.")
+    st.error("❌ No parameters available for this machine at all.")
+    st.error("This indicates a database connectivity issue or the machine has no recorded data.")
     st.stop()
 
 
@@ -552,6 +677,7 @@ st.dataframe(selected_runs_display, use_container_width=True, hide_index=True, h
 # ── Step 6: Collect Samples & Generate Datasheet ─────────────────────────────
 st.markdown("---")
 st.markdown('<p class="cofi-section-title">Step 6: Collect Samples & Generate Datasheet</p>', unsafe_allow_html=True)
+st.caption("Collect all parameter samples from the selected production runs and calculate statistics for the datasheet.")
 
 if st.button(
     "Collect Samples & Generate Datasheet",
@@ -559,98 +685,112 @@ if st.button(
     type="primary",
     key="btn_generate_datasheet"
 ):
-    # Define samples_per_run here
-    samples_per_run = 1500
+    # Samples per run: 1200 is optimal for historical analysis
+    samples_per_run = 1200
     
-    with st.spinner(f"Collecting up to {samples_per_run:,} samples × {run_count} runs for {len(discovered_params)} parameters..."):
-        try:
-            labeled_samples, quality_info = get_labeled_samples_from_runs(
-                selected_machine,
-                selected_runs,
-                discovered_params,
-                samples_per_run=samples_per_run
-            )
+    with st.spinner(f"Collecting {len(discovered_params)} parameters from {run_count} runs (max {samples_per_run:,} samples/run)..."):
+        labeled_samples, quality_info = get_labeled_samples_from_runs(
+            selected_machine,
+            selected_runs,
+            discovered_params,
+            samples_per_run=samples_per_run
+        )
 
-            if labeled_samples.empty:
-                st.error("❌ No parameter samples collected.")
-                st.info("""
-                **Why this might be happening:**
-                - The selected production runs are older than the data available in the database
-                - Database may not be receiving real-time data from OPC UA currently
-                - Time window doesn't overlap with stored data
-                
-                **Recommendations:**
-                1. Go back to **Step 3** and select the **most recent** production runs
-                2. Try runs from the last 24-48 hours
-                3. Check if the machine has been producing recently
-                """)
-                st.stop()
-            else:
-                total_samples = len(labeled_samples)
-                ok_count = int((labeled_samples['IsOk'] == 1).sum())
-                not_ok_count = total_samples - ok_count
+    if labeled_samples.empty:
+        st.error("❌ Sample collection failed")
+        st.stop()
+    
+    # Show results
+    total_samples = len(labeled_samples)
+    ok_count = int((labeled_samples['IsOk'] == 1).sum())
+    not_ok_count = total_samples - ok_count
+    coll_stats = quality_info.get("collection_stats", {})
 
-                with st.expander("🔍 Quality Diagnostics", expanded=True):
-                    q_map = quality_info.get("quality_map", {})
-                    st.markdown(f"**ProductionRunQuality lookup results:**")
-                    st.markdown(f"- RunIds queried: {len(selected_runs)}")
-                    st.markdown(f"- RunIds found in ProductionRunQuality: {len(quality_info.get('matched_runs', []))}")
-                    st.markdown(f"- RunIds NOT found: {len(quality_info.get('missing_runs', []))}")
-                    st.markdown(f"- Quality map: `{q_map}`")
+    # Detailed diagnostics
+    with st.expander("📊 Collection Details & Quality Data", expanded=True):
+        # Metrics row
+        metric_cols = st.columns(4)
+        with metric_cols[0]:
+            st.metric("Total Samples", f"{total_samples:,}")
+        with metric_cols[1]:
+            st.metric("Good (IsOk=1)", f"{ok_count:,}")
+        with metric_cols[2]:
+            st.metric("Not OK (IsOk=0)", f"{not_ok_count:,}")
+        with metric_cols[3]:
+            st.metric("Parameters Found", coll_stats.get('params_found', '?'))
+        
+        st.divider()
+        
+        # Collection progress
+        st.subheader("📋 Collection Statistics")
+        st.markdown(f"""
+        - **Parameters processed**: {coll_stats.get('params_queried', '?')}
+        - **Parameters with data**: {coll_stats.get('params_found', '?')}
+        - **Runs processed**: {len(selected_runs)}
+        - **Total samples collected**: {total_samples:,}
+        """)
+        
+        # Quality lookup results
+        st.subheader("🔍 ProductionRunQuality Lookup")
+        q_map = quality_info.get("quality_map", {})
+        st.markdown(f"""
+        - **Runs queried**: {len(selected_runs)}
+        - **Runs in ProductionRunQuality**: {len(quality_info.get('matched_runs', []))}
+        - **Runs with IsOk data**: {len([v for v in q_map.values() if v == 1])} Good / {len([v for v in q_map.values() if v == 0])} Not OK
+        - **Runs defaulted to IsOk=0**: {len(quality_info.get('missing_runs', []))}
+        """)
+        
+        if quality_info.get('missing_runs') and len(quality_info.get('missing_runs', [])) <= 5:
+            st.caption(f"Runs without quality data: {quality_info['missing_runs']}")
 
-                    if quality_info.get("missing_runs"):
-                        st.warning(f"Missing in Quality table: `{quality_info['missing_runs']}`")
+    st.success(f"✅ **{total_samples:,} samples** ready for analysis")
 
-                st.success(f"✅ Collected **{total_samples:,}** total samples ({ok_count:,} OK / {not_ok_count:,} NOT OK)")
+    with st.spinner("Calculating parameter statistics from samples..."):
+        statistics_df = calculate_recipe_parameter_statistics_from_samples(labeled_samples)
 
-                with st.spinner("Calculating statistics from labeled samples..."):
-                    statistics_df = calculate_recipe_parameter_statistics_from_samples(labeled_samples)
+    if statistics_df.empty:
+        st.error("❌ No valid statistics computed from samples")
+        st.stop()
+    
+    # Save datasheet
+    recipe_key = f"custom_{'_'.join(p.split('.')[-1] for p in selected_recipe_params[:3])}"
+    if len(recipe_key) > 255:
+        recipe_key = recipe_key[:255]
 
-                if statistics_df.empty:
-                    st.error("No valid statistics computed from collected samples.")
-                else:
-                    recipe_key = f"custom_{'_'.join(p.split('.')[-1] for p in selected_recipe_params[:3])}"
-                    if len(recipe_key) > 255:
-                        recipe_key = recipe_key[:255]
+    datasheet_run_id = save_datasheet_run(
+        selected_machine,
+        recipe_key,
+        parameter_count=len(statistics_df),
+        sample_count=total_samples,
+        ok_count=ok_count,
+        not_ok_count=not_ok_count
+    )
 
-                    datasheet_run_id = save_datasheet_run(
-                        selected_machine,
-                        recipe_key,
-                        parameter_count=len(statistics_df),
-                        sample_count=total_samples,
-                        ok_count=ok_count,
-                        not_ok_count=not_ok_count
-                    )
+    if datasheet_run_id is not None:
+        success = save_recipe_datasheet(
+            selected_machine,
+            recipe_key,
+            statistics_df
+        )
 
-                    if datasheet_run_id is not None:
-                        success = save_recipe_datasheet(
-                            selected_machine,
-                            recipe_key,
-                            statistics_df
-                        )
-
-                        if success:
-                            st.session_state["analysis_results"] = {
-                                "machine": selected_machine,
-                                "recipe_key": recipe_key,
-                                "selected_run_id": selected_run_id["RunId"],
-                                "recipe_params": selected_recipe_params,
-                                "discovered_param_count": len(discovered_params),
-                                "run_count": run_count,
-                                "total_samples": total_samples,
-                                "ok_samples": ok_count,
-                                "not_ok_samples": not_ok_count,
-                                "parameter_count": len(statistics_df),
-                                "timestamp": datetime.now(),
-                                "datasheet_run_id": datasheet_run_id,
-                                "statistics": statistics_df
-                            }
-                            st.success(f"🎉 Datasheet generated and saved as Run #{datasheet_run_id}!")
-                        else:
-                            st.error("Failed to save datasheet to database.")
-                    else:
-                        st.error("Failed to create datasheet run entry.")
-        except Exception as e:
-            st.error(f"Analysis error: {str(e)}")
-            import traceback
-            st.error(traceback.format_exc())
+        if success:
+            st.session_state["analysis_results"] = {
+                "machine": selected_machine,
+                "recipe_key": recipe_key,
+                "selected_run_id": selected_run_id["RunId"],
+                "recipe_params": selected_recipe_params,
+                "discovered_param_count": len(discovered_params),
+                "run_count": run_count,
+                "total_samples": total_samples,
+                "ok_samples": ok_count,
+                "not_ok_samples": not_ok_count,
+                "parameter_count": len(statistics_df),
+                "timestamp": datetime.now(),
+                "datasheet_run_id": datasheet_run_id,
+                "statistics": statistics_df
+            }
+            st.success(f"🎉 Datasheet generated and saved as Run #{datasheet_run_id}!")
+        else:
+            st.error("Failed to save datasheet to database.")
+    else:
+        st.error("Failed to create datasheet run entry.")
