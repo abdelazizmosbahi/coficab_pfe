@@ -2183,6 +2183,46 @@ def get_last_10_runs_for_machine_with_recipe(machine_code: str, opcnodeids: list
         return pd.DataFrame()
 
 
+def get_runs_in_time_window(machine_code: str, start_ts, end_ts) -> pd.DataFrame:
+    """
+    Find production runs that overlap with the given time window.
+    Returns runs where the run period intersects with [start_ts, end_ts].
+    """
+    try:
+        query = """
+            SELECT TOP 50
+                [RunId],
+                [MachineCode],
+                [StartTs],
+                [EndTs],
+                [Status],
+                [ScopeKey] AS RecipeIdentifier
+            FROM [dbo].[productionrun]
+            WHERE [MachineCode] = :machine
+              AND [StartTs] IS NOT NULL
+              AND [EndTs] IS NOT NULL
+              AND [StartTs] <= :end_ts
+              AND [EndTs] >= :start_ts
+            ORDER BY [StartTs] DESC
+        """
+
+        with get_engine().connect() as c:
+            df = pd.read_sql(text(query), c, params={
+                "machine": machine_code,
+                "start_ts": start_ts,
+                "end_ts": end_ts
+            })
+
+        if not df.empty:
+            df['StartTs'] = pd.to_datetime(df['StartTs'])
+            df['EndTs'] = pd.to_datetime(df['EndTs'])
+
+        return df
+    except Exception as e:
+        st.warning(f"Error finding runs in time window: {str(e)}")
+        return pd.DataFrame()
+
+
 def filter_runs_by_available_data(machine_code: str, runs_df: pd.DataFrame) -> pd.DataFrame:
     """
     Filter production runs to only those with available sensor data.
@@ -2408,8 +2448,12 @@ def get_labeled_samples_from_runs(machine_code: str, runs: pd.DataFrame,
         total = len(param_list) * len(runs)
         done = 0
         samples_found_count = 0
+        params_queried = 0
+        params_found = 0
 
         for param in param_list[:150]:   # Limit to avoid too many queries
+            params_queried += 1
+            param_has_data = False
             for _, run in runs.iterrows():
                 try:
                     with get_engine().connect() as c:
@@ -2455,6 +2499,7 @@ def get_labeled_samples_from_runs(machine_code: str, runs: pd.DataFrame,
                                 samples_df['IsOk'] = quality_map.get(run['RunId'], 0)
                                 all_samples.append(samples_df)
                                 samples_found_count += len(samples_df)
+                                param_has_data = True
                 except Exception as param_error:
                     # Log but continue
                     pass
@@ -2462,12 +2507,24 @@ def get_labeled_samples_from_runs(machine_code: str, runs: pd.DataFrame,
                 done += 1
                 progress_bar.progress(min(int(done / total * 100), 100))
 
+            if param_has_data:
+                params_found += 1
+
         progress_bar.empty()
 
         if all_samples:
             final_df = pd.concat(all_samples, ignore_index=True)
             st.success(f"✅ Collected {len(final_df):,} samples from {samples_found_count} data points!")
-            return final_df, {"quality_map": quality_map, "matched_runs": list(quality_map.keys()), "missing_runs": [], "all_zero": True}
+            return final_df, {
+                "quality_map": quality_map,
+                "matched_runs": list(quality_map.keys()),
+                "missing_runs": [],
+                "all_zero": True,
+                "collection_stats": {
+                    "params_queried": params_queried,
+                    "params_found": params_found
+                }
+            }
         else:
             st.error("❌ No data found for these runs and parameters.")
             st.warning("🔍 **Possible causes:**")
@@ -2500,6 +2557,89 @@ def get_labeled_samples_from_runs(machine_code: str, runs: pd.DataFrame,
         with st.expander("Error details"):
             st.code(traceback.format_exc())
         return pd.DataFrame(), {}
+
+
+@st.cache_data(ttl=30)
+def get_labeled_samples_from_time_window(machine_code: str, runs: pd.DataFrame,
+                                          param_list: list, samples_per_run: int = 800) -> tuple:
+    """
+    Collect samples from a time window directly (no ProductionRunQuality lookup).
+    All samples are marked IsOk=1 since there is no production run to check quality against.
+    The runs parameter should contain a single synthetic run with StartTs/EndTs defining the window.
+    """
+    if runs.empty or not param_list:
+        return pd.DataFrame(), {}
+
+    all_samples = []
+    run = runs.iloc[0]
+    start_ts = pd.to_datetime(run['StartTs']).tz_localize(None)
+    end_ts = pd.to_datetime(run['EndTs']).tz_localize(None)
+
+    try:
+        progress_bar = st.progress(0)
+        total = min(len(param_list), 150)
+        params_found = 0
+
+        for i, param in enumerate(param_list[:150]):
+            try:
+                with get_engine().connect() as c:
+                    samples_df = pd.read_sql(
+                        text("""
+                            SELECT TOP (:limit) OpcNodeId, Value, SourceTimestamp
+                            FROM MachineTagValue WITH (NOLOCK)
+                            WHERE MachineCode = :machine
+                              AND OpcNodeId = :param
+                              AND SourceTimestamp >= :start_ts
+                              AND SourceTimestamp <= :end_ts
+                            ORDER BY SourceTimestamp ASC
+                        """),
+                        c,
+                        params={
+                            "machine": machine_code,
+                            "param": param,
+                            "start_ts": start_ts,
+                            "end_ts": end_ts,
+                            "limit": samples_per_run
+                        }
+                    )
+
+                    if not samples_df.empty:
+                        samples_df['Value'] = pd.to_numeric(samples_df['Value'], errors='coerce')
+                        samples_df = samples_df.dropna(subset=['Value']).copy()
+                        if not samples_df.empty:
+                            samples_df['RunId'] = 'TIME_WINDOW'
+                            samples_df['IsOk'] = 1
+                            all_samples.append(samples_df)
+                            params_found += 1
+            except Exception:
+                pass
+
+            progress_bar.progress(min(int((i + 1) / total * 100), 100))
+
+        progress_bar.empty()
+
+        if all_samples:
+            final_df = pd.concat(all_samples, ignore_index=True)
+            return final_df, {
+                "quality_map": {},
+                "matched_runs": [],
+                "missing_runs": [],
+                "all_zero": False,
+                "time_window_mode": True,
+                "params_found": params_found,
+                "params_queried": total
+            }
+        else:
+            st.error("❌ No data found in the selected time window.")
+            return pd.DataFrame(), {}
+
+    except Exception as e:
+        st.error(f"Error collecting samples: {str(e)}")
+        import traceback
+        with st.expander("Error details"):
+            st.code(traceback.format_exc())
+        return pd.DataFrame(), {}
+
 
 def calculate_recipe_parameter_statistics_from_samples(labeled_samples: pd.DataFrame) -> pd.DataFrame:
     """

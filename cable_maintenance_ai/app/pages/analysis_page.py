@@ -54,6 +54,7 @@ from db_helpers import (
     get_engine,
     get_all_params_in_time_window,
     get_labeled_samples_from_runs,
+    get_runs_in_time_window,
     calculate_recipe_parameter_statistics_from_samples,
     save_recipe_datasheet,
     load_recipe_datasheet,
@@ -414,62 +415,137 @@ if selected_recipe_params != st.session_state.analysis_recipe_params_selected:
     if "analysis_run_sequence_selector" in st.session_state:
         del st.session_state["analysis_run_sequence_selector"]
 
-# ── Step 3: Select Production Run (last 10) ─────────────────────────────────
+# ── Analysis Mode Selector ──────────────────────────────────────────
 st.markdown("---")
-st.markdown('<p class="cofi-section-title">Step 3: Select Production Run</p>', unsafe_allow_html=True)
-st.caption(f"Last 10 production runs for {selected_machine} with selected recipe parameters. Choose which run to analyze.")
+st.markdown('<p class="cofi-section-title">Analysis Mode</p>', unsafe_allow_html=True)
 
-if st.button(
-    "Load Last 10 Runs",
-    use_container_width=True,
-    type="primary",
-    key="btn_load_runs"
-):
-    with st.spinner("Loading production runs..."):
-        runs_df = get_last_10_runs_for_machine_with_recipe(selected_machine, selected_recipe_params)
+analysis_mode = st.radio(
+    "Choose analysis mode",
+    options=["Production Run-based", "Time Window-based"],
+    key="analysis_mode",
+    horizontal=True,
+    label_visibility="collapsed",
+)
 
-        if runs_df.empty:
-            st.error(f"❌ No production runs found for {selected_machine}")
+if analysis_mode != st.session_state.get("analysis_prev_mode"):
+    st.session_state["analysis_prev_mode"] = analysis_mode
+    for key in ["analysis_runs", "analysis_sample_runs", "analysis_sample_run_ids", "analysis_run_sequence_selector"]:
+        st.session_state.pop(key, None)
+
+# ── Step 3: Data Source ─────────────────────────────────────────────
+
+if analysis_mode == "Time Window-based":
+    if "analysis_runs" not in st.session_state:
+        st.markdown('<p class="cofi-section-title">Step 3: Select Time Window</p>', unsafe_allow_html=True)
+        st.caption("Choose a time range with sensor data to analyze. No production run required.")
+
+        try:
+            with get_engine().connect() as c:
+                bounds = pd.read_sql(
+                    text("""
+                        SELECT
+                            MIN(SourceTimestamp) as oldest_data,
+                            MAX(SourceTimestamp) as newest_data
+                        FROM MachineTagValue WITH (NOLOCK)
+                        WHERE MachineCode = :machine
+                    """),
+                    c,
+                    params={"machine": selected_machine}
+                )
+                if not bounds.empty and not pd.isna(bounds['oldest_data'].iloc[0]):
+                    db_start = pd.to_datetime(bounds['oldest_data'].iloc[0])
+                    db_end = pd.to_datetime(bounds['newest_data'].iloc[0])
+                    st.caption(f"Available sensor data range: {db_start} to {db_end}")
+                else:
+                    st.error("No sensor data found for this machine.")
+                    st.stop()
+        except Exception as e:
+            st.error(f"Could not determine data range: {e}")
             st.stop()
-        
-        # Filter to only show runs with available sensor data
-        with st.spinner("Checking data availability..."):
-            filtered_runs_df = filter_runs_by_available_data(selected_machine, runs_df)
-        
-        if filtered_runs_df.empty:
-            st.error(f"❌ Data Gap: No production runs have corresponding sensor data")
-            st.markdown("""
-            ### Why This Happened
+
+        col1, col2 = st.columns(2)
+        with col1:
+            st.markdown("**Start**")
+            start_date = st.date_input("Date", value=db_start.date(), key="tw_start_date", label_visibility="collapsed")
+            start_time = st.time_input("Time", value=db_start.time(), key="tw_start_time", label_visibility="collapsed")
+            window_start = datetime.combine(start_date, start_time)
+        with col2:
+            st.markdown("**End**")
+            end_date = st.date_input("Date", value=db_end.date(), key="tw_end_date", label_visibility="collapsed")
+            end_time = st.time_input("Time", value=db_end.time(), key="tw_end_time", label_visibility="collapsed")
+            window_end = datetime.combine(end_date, end_time)
+
+        if window_start >= window_end:
+            st.warning("Start time must be before end time.")
+            st.stop()
+
+        if st.button("Load Time Window", use_container_width=True, type="primary", key="btn_load_time_window"):
+            with st.spinner("Searching for production runs in time window..."):
+                runs_df = get_runs_in_time_window(
+                    selected_machine,
+                    window_start,
+                    window_end
+                )
+
+                if runs_df.empty:
+                    st.error("❌ No production runs found in the selected time window.")
+                    st.markdown(f"""
+                    The time window **{window_start}** to **{window_end}** contains **no production runs**.
+
+                    **Suggestions:**
+                    - Try a wider time range
+                    - Switch to **Production Run-based** mode to see when runs exist
+                    - Wait for new production runs to be created
+                    """)
+                    st.stop()
+
+                with st.spinner("Checking sensor data availability..."):
+                    filtered_runs_df = filter_runs_by_available_data(selected_machine, runs_df)
+
+                if filtered_runs_df.empty:
+                    st.error("❌ Production runs found but no overlapping sensor data.")
+                    st.stop()
+
+                st.success(f"✅ Found {len(filtered_runs_df)} production runs with available sensor data!")
+                st.session_state["analysis_runs"] = filtered_runs_df
+                st.session_state.analysis_step = 3
+                st.rerun()
+
+        st.stop()
+    else:
+        st.caption(f"✅ {len(st.session_state['analysis_runs'])} production runs loaded in time window")
+
+elif analysis_mode == "Production Run-based":
+    st.markdown('<p class="cofi-section-title">Step 3: Select Production Run</p>', unsafe_allow_html=True)
+    st.caption(f"Last 10 production runs for {selected_machine} with selected recipe parameters. Choose which run to analyze.")
+
+    if st.button(
+        "Load Last 10 Runs",
+        use_container_width=True,
+        type="primary",
+        key="btn_load_runs"
+    ):
+        with st.spinner("Loading production runs..."):
+            runs_df = get_last_10_runs_for_machine_with_recipe(selected_machine, selected_recipe_params)
+
+            if runs_df.empty:
+                st.error(f"❌ No production runs found for {selected_machine}")
+                st.stop()
             
-            The production runs in the database are from **May 17-18**, but sensor data collection 
-            only started on **May 19**. This means:
+            # Filter to only show runs with available sensor data
+            with st.spinner("Checking data availability..."):
+                filtered_runs_df = filter_runs_by_available_data(selected_machine, runs_df)
             
-            - ✅ The database HAS production run records
-            - ✅ The database HAS sensor data 
-            - ❌ But they don't overlap in time
-            
-            ### What to Do
-            
-            **Option 1: Use Recent Runs**
-            - Check if there are any production runs from **May 19-20** (when data was being recorded)
-            - Those runs would have corresponding sensor data
-            
-            **Option 2: Backfill Historical Data**
-            - Import sensor data from before May 19
-            - Then older production runs can be analyzed
-            
-            **Option 3: Check Back Later**
-            - New production runs will be created in the future
-            - When they are, there will be sensor data available
-            
-            ### Technical Details
-            """)
-            with st.expander("📊 Database Time Range"):
+            if filtered_runs_df.empty:
+                st.error(f"❌ Data Gap: No production runs have corresponding sensor data")
+
+                # Query database boundaries once for dynamic messaging
+                db_info = {}
                 try:
                     with get_engine().connect() as c:
                         bounds = pd.read_sql(
                             text("""
-                                SELECT 
+                                SELECT
                                     MIN(SourceTimestamp) as oldest_data,
                                     MAX(SourceTimestamp) as newest_data,
                                     COUNT(*) as total_rows
@@ -480,12 +556,13 @@ if st.button(
                             params={"machine": selected_machine}
                         )
                         if not bounds.empty and not pd.isna(bounds['oldest_data'].iloc[0]):
-                            st.info(f"**Sensor data available:** {bounds['oldest_data'].iloc[0]} to {bounds['newest_data'].iloc[0]}")
-                            st.info(f"**Total sensor records:** {bounds['total_rows'].iloc[0]:,}")
-                        
+                            db_info['sensor_start'] = str(bounds['oldest_data'].iloc[0])
+                            db_info['sensor_end'] = str(bounds['newest_data'].iloc[0])
+                            db_info['sensor_count'] = int(bounds['total_rows'].iloc[0])
+
                         prod_runs = pd.read_sql(
                             text("""
-                                SELECT 
+                                SELECT
                                     MIN(StartTs) as oldest_run,
                                     MAX(EndTs) as newest_run,
                                     COUNT(*) as total_runs
@@ -496,21 +573,63 @@ if st.button(
                             params={"machine": selected_machine}
                         )
                         if not prod_runs.empty and not pd.isna(prod_runs['oldest_run'].iloc[0]):
-                            st.info(f"**Production runs available:** {prod_runs['oldest_run'].iloc[0]} to {prod_runs['newest_run'].iloc[0]}")
-                            st.info(f"**Total production runs:** {prod_runs['total_runs'].iloc[0]:,}")
+                            db_info['run_start'] = str(prod_runs['oldest_run'].iloc[0])
+                            db_info['run_end'] = str(prod_runs['newest_run'].iloc[0])
+                            db_info['run_count'] = int(prod_runs['total_runs'].iloc[0])
                 except Exception as e:
-                    st.warning(f"Could not load database info: {str(e)}")
+                    db_info['error'] = str(e)
+
+                sensor_start = db_info.get('sensor_start', 'N/A')
+                sensor_end = db_info.get('sensor_end', 'N/A')
+                run_start = db_info.get('run_start', 'N/A')
+                run_end = db_info.get('run_end', 'N/A')
+
+                st.markdown(f"""
+                ### Why This Happened
+
+                The production runs in the database span from **{run_start}** to **{run_end}**, but sensor data collection covers **{sensor_start}** to **{sensor_end}**. This means:
+
+                - ✅ The database HAS production run records
+                - ✅ The database HAS sensor data
+                - ❌ But they don't overlap in time
+
+                ### What to Do
+
+                **Option 1: Use Recent Runs**
+                - Check if there are any production runs from **{sensor_start}** onwards
+                - Those runs would have corresponding sensor data
+
+                **Option 2: Backfill Historical Data**
+                - Import sensor data from before {sensor_start}
+                - Then older production runs can be analyzed
+
+                **Option 3: Check Back Later**
+                - New production runs will be created in the future
+                - When they are, there will be sensor data available
+                """)
+
+                with st.expander("📊 Database Time Range"):
+                    if 'error' in db_info:
+                        st.warning(f"Could not load database info: {db_info['error']}")
+                    else:
+                        st.info(f"**Sensor data available:** {sensor_start} to {sensor_end}")
+                        st.info(f"**Total sensor records:** {db_info.get('sensor_count', 0):,}")
+                        st.info(f"**Production runs available:** {run_start} to {run_end}")
+                        st.info(f"**Total production runs:** {db_info.get('run_count', 0):,}")
+
+                st.stop()
             
-            st.stop()
-        
-        st.success(f"✅ Loaded {len(filtered_runs_df)} production runs with available data!")
-        st.session_state["analysis_runs"] = filtered_runs_df
-        st.session_state.analysis_step = 3
-        st.rerun()
+            st.success(f"✅ Loaded {len(filtered_runs_df)} production runs with available data!")
+            st.session_state["analysis_runs"] = filtered_runs_df
+            st.session_state.analysis_step = 3
+            st.rerun()
 
 # ── Continue only if runs are loaded ─────────────────────────────────────
 if "analysis_runs" not in st.session_state:
-    st.info("👆 Click **'Load Last 10 Runs'** to continue.")
+    if st.session_state.get("analysis_mode") == "Time Window-based":
+        st.info("👆 Click **'Load Time Window'** to continue.")
+    else:
+        st.info("👆 Click **'Load Last 10 Runs'** to continue.")
     st.stop()
 
 runs_df = st.session_state["analysis_runs"]
@@ -526,8 +645,9 @@ st.dataframe(
     hide_index=True
 )
 
+run_selector_label = "Select a time window to analyze" if st.session_state.get("analysis_mode") == "Time Window-based" else "Select a production run to analyze"
 selected_run_label = st.selectbox(
-    "Select a production run to analyze",
+    run_selector_label,
     options=run_display["RunId"].tolist(),
     key="analysis_run_selector",
     label_visibility="collapsed",
@@ -604,7 +724,8 @@ except Exception:
 # ── Step 4: Discover Parameters ─────────────────────────────────────────────
 st.markdown("---")
 st.markdown('<p class="cofi-section-title">Step 4: Discover Parameters</p>', unsafe_allow_html=True)
-st.caption("Finding all parameters that were recorded during the selected production run.")
+source_label = "time window" if st.session_state.get("analysis_mode") == "Time Window-based" else "production run"
+st.caption(f"Finding all parameters that were recorded during the selected {source_label}.")
 
 with st.spinner("Discovering parameters for this run..."):
     discovered_params = get_all_params_in_time_window(
@@ -633,13 +754,14 @@ else:
 # ── Step 5: Select Runs for Sample Collection ────────────────────────────────
 st.markdown("---")
 st.markdown('<p class="cofi-section-title">Step 5: Select Runs for Sample Collection</p>', unsafe_allow_html=True)
-st.caption("Select from the filtered production runs (last 10 for machine with recipe) to collect samples.")
+is_time_window = st.session_state.get("analysis_mode") == "Time Window-based"
+st.caption("Select from available data sources to collect samples." if is_time_window else "Select from the filtered production runs (last 10 for machine with recipe) to collect samples.")
 
 # Use the filtered runs from Step 3 instead of fetching all recent runs
 recent_runs = st.session_state.get("analysis_runs", pd.DataFrame())
 
 if recent_runs.empty:
-    st.error(f"No production runs available. Please reload the runs in Step 3.")
+    st.error("No data source loaded. Please reload in Step 3.")
     st.stop()
 
 recent_run_ids = recent_runs["RunId"].tolist()
@@ -790,6 +912,25 @@ if st.button(
                 "statistics": statistics_df
             }
             st.success(f"🎉 Datasheet generated and saved as Run #{datasheet_run_id}!")
+
+            with st.expander("📋 View Generated Datasheet", expanded=True):
+                display_cols = [col for col in [
+                    'ParameterName', 'OpcNodeId', 'MinValue', 'OptimalValue',
+                    'MaxValue', 'MeanValue', 'StdDev', 'SampleCount',
+                    'QualityOkCount', 'QualityNotOkCount'
+                ] if col in statistics_df.columns]
+
+                display_df = statistics_df[display_cols].copy()
+                for col in ['MinValue', 'OptimalValue', 'MaxValue', 'MeanValue', 'StdDev']:
+                    if col in display_df.columns:
+                        display_df[col] = display_df[col].apply(lambda x: f"{float(x):.4f}" if pd.notna(x) else "—")
+
+                st.dataframe(
+                    display_df,
+                    use_container_width=True,
+                    hide_index=True,
+                    height=min(600, 36 * len(display_df) + 50)
+                )
         else:
             st.error("Failed to save datasheet to database.")
     else:
