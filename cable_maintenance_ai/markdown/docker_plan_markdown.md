@@ -247,9 +247,9 @@ services:
     ports:
       - "8501:8501"
     environment:
-      - DB_HOST=172.00.00.000
+      - DB_HOST=172.0
       - DB_PORT=1433
-      - DB_USER=cm_prd
+      - DB_USER=cm
       - DB_PASSWORD=\`\`DB_PASSWORD\`\`
       - DB_NAME=Op
       - MISTRAL_API_KEY=\`\`MISTRAL_API_KEY\`\`
@@ -272,9 +272,9 @@ echo "✓ docker-compose.yml created (update credentials before use)"
 # PowerShell - Create .env in project root with ACTUAL credentials
 @"
 # Database Configuration
-DB_HOST=172.00.00.000
-DB_PORT=1433
-DB_USER=cm_prd
+DB_HOST=172.0
+DB_PORT=
+DB_USER=c
 DB_PASSWORD=YOUR_PASSWORD_HERE
 DB_NAME=Op
 
@@ -411,9 +411,9 @@ services:
     ports:
       - "8501:8501"
     environment:
-      - DB_HOST=172.00.00.000
-      - DB_PORT=1433
-      - DB_USER=cm_prd
+      - DB_HOST=172
+      - DB_PORT=
+      - DB_USER=cm
       - DB_PASSWORD=YOUR_PASSWORD
       - DB_NAME=Op
       - MISTRAL_API_KEY=YOUR_API_KEY
@@ -1046,7 +1046,7 @@ Get-ChildItem .\deployment_package\ -Recurse -File | Select-Object FullName
 - Windows 10/11 Pro, Enterprise, or Home (with WSL2 enabled)
 - Docker Desktop 4.0+ installed and running
 - Administrator access
-- Network access to MSSQL server at 172.22.90.210:1433
+- Network access to MSSQL server 
 
 ### Phase 1: Copy and Setup Files
 ```powershell

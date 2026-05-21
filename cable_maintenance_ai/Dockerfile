@@ -28,10 +28,12 @@ RUN curl -fsSL https://packages.microsoft.com/keys/microsoft.asc | gpg --dearmor
     rm -rf /var/lib/apt/lists/*
 
 # ========================================
-# Step 3: Install Python dependencies
+# Step 3: Upgrade pip + Install Python dependencies
 # ========================================
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+
+RUN pip install --upgrade pip setuptools wheel && \
+    pip install --no-cache-dir -r requirements.txt
 
 # ========================================
 # Step 4: Copy application code

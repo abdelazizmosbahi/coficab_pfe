@@ -21,3 +21,5 @@ pip-audit==2.6.1
 
 # Dependency Management
 pip-tools==7.3.0
+
+mistralai>=2.4.5
