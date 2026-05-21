@@ -52,7 +52,6 @@ from db_helpers import (
     get_last_10_runs_for_machine_with_recipe,
     filter_runs_by_available_data,
     get_engine,
-    get_all_params_in_time_window,
     get_labeled_samples_from_runs,
     get_runs_in_time_window,
     calculate_recipe_parameter_statistics_from_samples,
@@ -249,6 +248,8 @@ if 'analysis_step' not in st.session_state:
     st.session_state.analysis_step = 1
 if 'analysis_machine_selected' not in st.session_state:
     st.session_state.analysis_machine_selected = None
+if 'analysis_monitoring_params_selected' not in st.session_state:
+    st.session_state.analysis_monitoring_params_selected = None
 if 'analysis_recipe_params_selected' not in st.session_state:
     st.session_state.analysis_recipe_params_selected = None
 if 'analysis_machine_options' not in st.session_state:
@@ -380,40 +381,57 @@ if not previous_runs.empty:
 else:
     st.info(f"No previous datasheet runs found for {selected_machine}. Generate your first datasheet to get started!")
 
-# ── Step 2: Select Recipe Parameters ────────────────────────────────────────
+# ── Step 2: Select Parameters to Monitor ────────────────────────────────────
 st.markdown("---")
-st.markdown('<p class="cofi-section-title">Step 2: Select Recipe Parameters</p>', unsafe_allow_html=True)
-st.caption("Pick parameters that define your recipe. These are used as a reference key — the datasheet will cover ALL parameters found in the selected run.")
+st.markdown('<p class="cofi-section-title">Step 2: Select Parameters to Monitor</p>', unsafe_allow_html=True)
+st.caption("Pick the parameters to analyze and designate which are recipe parameters.")
 
 all_parameters = load_all_parameters_for_machine(selected_machine)
 if not all_parameters:
     st.warning(f"No parameters found for machine {selected_machine}.")
     st.stop()
 
-selected_recipe_params = st.multiselect(
-    "Select recipe parameters (OPC NodeIds):",
-    options=all_parameters,
-    format_func=lambda x: x.replace('_ACT', '').replace('_', ' '),
-    key="analysis_recipe_multiselect",
-)
+col1, col2 = st.columns(2)
 
-if not selected_recipe_params:
-    st.info("Select at least one parameter to continue.")
+with col1:
+    st.markdown("**Parameters to Monitor**")
+    selected_monitoring_params = st.multiselect(
+        "Select parameters to analyze:",
+        options=all_parameters,
+        format_func=lambda x: x.replace('_ACT', '').replace('_', ' '),
+        key="analysis_monitoring_multiselect",
+        help="These parameters will be collected and analyzed"
+    )
+
+with col2:
+    st.markdown("**Recipe Parameters**  \n*(subset of monitoring params)*")
+    selected_recipe_params = st.multiselect(
+        "Select which parameters define the recipe:",
+        options=selected_monitoring_params if selected_monitoring_params else all_parameters,
+        format_func=lambda x: x.replace('_ACT', '').replace('_', ' '),
+        key="analysis_recipe_multiselect",
+        help="Parameters that define the recipe (used as recipe key)"
+    )
+
+if not selected_monitoring_params:
+    st.info("Select at least one parameter to monitor to continue.")
     st.stop()
 
-# Update session state when recipe params change
-if selected_recipe_params != st.session_state.analysis_recipe_params_selected:
+# Validate recipe params are a subset of monitoring params
+invalid_recipes = [p for p in selected_recipe_params if p not in selected_monitoring_params]
+if invalid_recipes:
+    st.error("Recipe parameters must be a subset of monitoring parameters.")
+    st.stop()
+
+# Update session state when params change
+if (selected_monitoring_params != st.session_state.analysis_monitoring_params_selected or
+    selected_recipe_params != st.session_state.analysis_recipe_params_selected):
+    st.session_state.analysis_monitoring_params_selected = selected_monitoring_params
     st.session_state.analysis_recipe_params_selected = selected_recipe_params
     st.session_state.analysis_step = 2
     # Clear downstream session state
-    if "analysis_runs" in st.session_state:
-        del st.session_state["analysis_runs"]
-    if "analysis_sample_runs" in st.session_state:
-        del st.session_state["analysis_sample_runs"]
-    if "analysis_sample_run_ids" in st.session_state:
-        del st.session_state["analysis_sample_run_ids"]
-    if "analysis_run_sequence_selector" in st.session_state:
-        del st.session_state["analysis_run_sequence_selector"]
+    for key in ["analysis_runs", "analysis_sample_runs", "analysis_sample_run_ids", "analysis_run_sequence_selector"]:
+        st.session_state.pop(key, None)
 
 # ── Analysis Mode Selector ──────────────────────────────────────────
 st.markdown("---")
@@ -517,16 +535,16 @@ if analysis_mode == "Time Window-based":
 
 elif analysis_mode == "Production Run-based":
     st.markdown('<p class="cofi-section-title">Step 3: Select Production Run</p>', unsafe_allow_html=True)
-    st.caption(f"Last 10 production runs for {selected_machine} with selected recipe parameters. Choose which run to analyze.")
+    st.caption(f"All production runs for {selected_machine} with selected recipe parameters. Choose which run to analyze.")
 
     if st.button(
-        "Load Last 10 Runs",
+        "Load Runs",
         use_container_width=True,
         type="primary",
         key="btn_load_runs"
     ):
         with st.spinner("Loading production runs..."):
-            runs_df = get_last_10_runs_for_machine_with_recipe(selected_machine, selected_recipe_params)
+            runs_df = get_last_10_runs_for_machine_with_recipe(selected_machine, selected_recipe_params, limit=None)
 
             if runs_df.empty:
                 st.error(f"❌ No production runs found for {selected_machine}")
@@ -629,7 +647,7 @@ if "analysis_runs" not in st.session_state:
     if st.session_state.get("analysis_mode") == "Time Window-based":
         st.info("👆 Click **'Load Time Window'** to continue.")
     else:
-        st.info("👆 Click **'Load Last 10 Runs'** to continue.")
+        st.info("👆 Click **'Load Runs'** to continue.")
     st.stop()
 
 runs_df = st.session_state["analysis_runs"]
@@ -645,120 +663,14 @@ st.dataframe(
     hide_index=True
 )
 
-run_selector_label = "Select a time window to analyze" if st.session_state.get("analysis_mode") == "Time Window-based" else "Select a production run to analyze"
-selected_run_label = st.selectbox(
-    run_selector_label,
-    options=run_display["RunId"].tolist(),
-    key="analysis_run_selector",
-    label_visibility="collapsed",
-)
 
-selected_run_row = run_display[run_display["RunId"] == selected_run_label].iloc[0]
-selected_run_id = runs_df[runs_df["RunId"] == selected_run_row["RunId"]].iloc[0]
 
-run_info_cols = st.columns(3)
-with run_info_cols[0]:
-    st.metric("Run ID", selected_run_row["RunId"])
-with run_info_cols[1]:
-    st.metric("Start Time", selected_run_row["StartTs"])
-with run_info_cols[2]:
-    st.metric("End Time", selected_run_row["EndTs"])
-
-# ── Diagnostic: Data Availability Check ─────────────────────────────────────
+# ── Step 4: Select Runs for Sample Collection ────────────────────────────────
 st.markdown("---")
-st.subheader("🔍 Data Availability Diagnostic")
-
-col1, col2 = st.columns(2)
-with col1:
-    st.write("**Selected Run:**")
-    st.write(f"Start: {selected_run_id['StartTs']}")
-    st.write(f"End: {selected_run_id['EndTs']}")
-
-with col2:
-    try:
-        from db_helpers import get_engine
-        from sqlalchemy import text   # ← This was missing
-
-        with get_engine().connect() as c:
-            diag = pd.read_sql(text("""
-                SELECT 
-                    MIN(SourceTimestamp) as oldest_data,
-                    MAX(SourceTimestamp) as newest_data,
-                    COUNT(*) as total_rows
-                FROM MachineTagValue 
-                WHERE MachineCode = :machine
-            """), c, params={"machine": selected_machine})
-            
-            if not diag.empty:
-                st.write("**Database Content:**")
-                st.write(f"Oldest data : {diag['oldest_data'].iloc[0]}")
-                st.write(f"Newest data : {diag['newest_data'].iloc[0]}")
-                st.write(f"Total rows  : {diag['total_rows'].iloc[0]:,}")
-            else:
-                st.warning("No data found in MachineTagValue for this machine.")
-    except Exception as e:
-        st.error(f"Diagnostic failed: {e}")
-
-# Overlap check
-try:
-    from db_helpers import get_engine
-    from sqlalchemy import text
-
-    with get_engine().connect() as c:
-        overlap = pd.read_sql(text("""
-            SELECT COUNT(*) as overlapping_rows
-            FROM MachineTagValue 
-            WHERE MachineCode = :machine
-              AND SourceTimestamp BETWEEN :start_ts AND :end_ts
-        """), c, params={
-            "machine": selected_machine,
-            "start_ts": selected_run_id['StartTs'],
-            "end_ts": selected_run_id['EndTs']
-        })
-        st.caption(f"📊 Overlapping rows in selected run window: **{overlap['overlapping_rows'].iloc[0]}**")
-except Exception:
-    pass
-
-
-
-# ── Step 4: Discover Parameters ─────────────────────────────────────────────
-st.markdown("---")
-st.markdown('<p class="cofi-section-title">Step 4: Discover Parameters</p>', unsafe_allow_html=True)
-source_label = "time window" if st.session_state.get("analysis_mode") == "Time Window-based" else "production run"
-st.caption(f"Finding all parameters that were recorded during the selected {source_label}.")
-
-with st.spinner("Discovering parameters for this run..."):
-    discovered_params = get_all_params_in_time_window(
-        selected_machine,
-        selected_run_id["StartTs"],
-        selected_run_id["EndTs"],
-        run_id=selected_run_id["RunId"]
-    )
-
-if discovered_params:
-    st.success(f"✅ Discovered **{len(discovered_params)}** parameters")
-    with st.expander("View discovered parameters", expanded=True):
-        params_df = pd.DataFrame({"OpcNodeId": discovered_params})
-        params_df.index = params_df.index + 1  # 1-based indexing for display
-        st.dataframe(
-            params_df,
-            use_container_width=True,
-            hide_index=False,
-            height=400
-        )
-else:
-    st.error(f"❌ No parameters found for ProductionRunId = {selected_run_id['RunId']}.")
-    st.warning("This production run has no sensor data linked to it in MachineTagValue. Select a different production run that has data.")
-    st.stop()
-
-
-# ── Step 5: Select Runs for Sample Collection ────────────────────────────────
-st.markdown("---")
-st.markdown('<p class="cofi-section-title">Step 5: Select Runs for Sample Collection</p>', unsafe_allow_html=True)
+st.markdown('<p class="cofi-section-title">Step 4: Select Runs for Sample Collection</p>', unsafe_allow_html=True)
 is_time_window = st.session_state.get("analysis_mode") == "Time Window-based"
-st.caption("Select from available data sources to collect samples." if is_time_window else "Select from the filtered production runs (last 10 for machine with recipe) to collect samples.")
+st.caption("Select from available data sources to collect samples." if is_time_window else "Select from the filtered production runs to collect samples.")
 
-# Use the filtered runs from Step 3 instead of fetching all recent runs
 recent_runs = st.session_state.get("analysis_runs", pd.DataFrame())
 
 if recent_runs.empty:
@@ -766,15 +678,21 @@ if recent_runs.empty:
     st.stop()
 
 recent_run_ids = recent_runs["RunId"].tolist()
-default_run_ids = [run_id for run_id in st.session_state.get("analysis_sample_run_ids", recent_run_ids[:3]) if run_id in recent_run_ids]
 
-selected_run_ids = st.multiselect(
-    "Choose one or more runs for sample collection",
-    options=recent_run_ids,
-    default=default_run_ids,
-    key="analysis_sample_run_ids",
-    help="Select the runs that should contribute samples for the datasheet.",
-)
+select_all_runs = st.checkbox("Select All Runs", value=True, key="analysis_select_all")
+
+if select_all_runs:
+    selected_run_ids = recent_run_ids
+    st.caption(f"✅ All **{len(selected_run_ids)}** runs will be used for sampling")
+else:
+    default_run_ids = [run_id for run_id in st.session_state.get("analysis_sample_run_ids", recent_run_ids[:3]) if run_id in recent_run_ids]
+    selected_run_ids = st.multiselect(
+        "Choose one or more runs for sample collection",
+        options=recent_run_ids,
+        default=default_run_ids,
+        key="analysis_sample_run_ids",
+        help="Select the runs that should contribute samples for the datasheet.",
+    )
 
 selected_runs = recent_runs[recent_runs["RunId"].isin(selected_run_ids)].copy()
 
@@ -797,9 +715,9 @@ selected_runs_display["StartTs"] = selected_runs_display["StartTs"].dt.strftime(
 selected_runs_display["EndTs"] = selected_runs_display["EndTs"].dt.strftime("%Y-%m-%d %H:%M")
 st.dataframe(selected_runs_display, use_container_width=True, hide_index=True, height=min(150, 36 * run_count + 50))
 
-# ── Step 6: Collect Samples & Generate Datasheet ─────────────────────────────
+# ── Step 5: Collect Samples & Generate Datasheet ─────────────────────────────
 st.markdown("---")
-st.markdown('<p class="cofi-section-title">Step 6: Collect Samples & Generate Datasheet</p>', unsafe_allow_html=True)
+st.markdown('<p class="cofi-section-title">Step 5: Collect Samples & Generate Datasheet</p>', unsafe_allow_html=True)
 st.caption("Collect all parameter samples from the selected production runs and calculate statistics for the datasheet.")
 
 if st.button(
@@ -811,11 +729,11 @@ if st.button(
     # Samples per run: 1200 is optimal for historical analysis
     samples_per_run = 1200
     
-    with st.spinner(f"Collecting {len(discovered_params)} parameters from {run_count} runs (max {samples_per_run:,} samples/run)..."):
+    with st.spinner(f"Collecting {len(selected_monitoring_params)} parameters from {run_count} runs (max {samples_per_run:,} samples/run)..."):
         labeled_samples, quality_info = get_labeled_samples_from_runs(
             selected_machine,
             selected_runs,
-            discovered_params,
+            selected_monitoring_params,
             samples_per_run=samples_per_run
         )
 
@@ -829,42 +747,16 @@ if st.button(
     not_ok_count = total_samples - ok_count
     coll_stats = quality_info.get("collection_stats", {})
 
-    # Detailed diagnostics
-    with st.expander("📊 Collection Details & Quality Data", expanded=True):
-        # Metrics row
-        metric_cols = st.columns(4)
-        with metric_cols[0]:
-            st.metric("Total Samples", f"{total_samples:,}")
-        with metric_cols[1]:
-            st.metric("Good (IsOk=1)", f"{ok_count:,}")
-        with metric_cols[2]:
-            st.metric("Not OK (IsOk=0)", f"{not_ok_count:,}")
-        with metric_cols[3]:
-            st.metric("Parameters Found", coll_stats.get('params_found', '?'))
-        
-        st.divider()
-        
-        # Collection progress
-        st.subheader("📋 Collection Statistics")
-        st.markdown(f"""
-        - **Parameters processed**: {coll_stats.get('params_queried', '?')}
-        - **Parameters with data**: {coll_stats.get('params_found', '?')}
-        - **Runs processed**: {len(selected_runs)}
-        - **Total samples collected**: {total_samples:,}
-        """)
-        
-        # Quality lookup results
-        st.subheader("🔍 ProductionRunQuality Lookup")
-        q_map = quality_info.get("quality_map", {})
-        st.markdown(f"""
-        - **Runs queried**: {len(selected_runs)}
-        - **Runs in ProductionRunQuality**: {len(quality_info.get('matched_runs', []))}
-        - **Runs with IsOk data**: {len([v for v in q_map.values() if v == 1])} Good / {len([v for v in q_map.values() if v == 0])} Not OK
-        - **Runs defaulted to IsOk=0**: {len(quality_info.get('missing_runs', []))}
-        """)
-        
-        if quality_info.get('missing_runs') and len(quality_info.get('missing_runs', [])) <= 5:
-            st.caption(f"Runs without quality data: {quality_info['missing_runs']}")
+    # Metrics row
+    metric_cols = st.columns(4)
+    with metric_cols[0]:
+        st.metric("Total Samples", f"{total_samples:,}")
+    with metric_cols[1]:
+        st.metric("Good (IsOk=1)", f"{ok_count:,}")
+    with metric_cols[2]:
+        st.metric("Not OK (IsOk=0)", f"{not_ok_count:,}")
+    with metric_cols[3]:
+        st.metric("Parameters Found", coll_stats.get('params_found', '?'))
 
     st.success(f"✅ **{total_samples:,} samples** ready for analysis")
 
@@ -893,16 +785,16 @@ if st.button(
         success = save_recipe_datasheet(
             selected_machine,
             recipe_key,
-            statistics_df
+            statistics_df,
+            datasheet_run_id=datasheet_run_id
         )
 
         if success:
             st.session_state["analysis_results"] = {
                 "machine": selected_machine,
                 "recipe_key": recipe_key,
-                "selected_run_id": selected_run_id["RunId"],
                 "recipe_params": selected_recipe_params,
-                "discovered_param_count": len(discovered_params),
+                "selected_param_count": len(selected_monitoring_params),
                 "run_count": run_count,
                 "total_samples": total_samples,
                 "ok_samples": ok_count,
@@ -914,24 +806,25 @@ if st.button(
             }
             st.success(f"🎉 Datasheet generated and saved as Run #{datasheet_run_id}!")
 
-            with st.expander("📋 View Generated Datasheet", expanded=True):
-                display_cols = [col for col in [
-                    'ParameterName', 'OpcNodeId', 'MinValue', 'OptimalValue',
-                    'MaxValue', 'MeanValue', 'StdDev', 'SampleCount',
-                    'QualityOkCount', 'QualityNotOkCount'
-                ] if col in statistics_df.columns]
+            st.markdown(f"**Analysis Date:** {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
 
-                display_df = statistics_df[display_cols].copy()
-                for col in ['MinValue', 'OptimalValue', 'MaxValue', 'MeanValue', 'StdDev']:
-                    if col in display_df.columns:
-                        display_df[col] = display_df[col].apply(lambda x: f"{float(x):.4f}" if pd.notna(x) else "—")
+            display_cols = [col for col in [
+                'OpcNodeId', 'MinValue', 'OptimalValue',
+                'MaxValue', 'MeanValue', 'StdDev', 'SampleCount',
+                'QualityOkCount', 'QualityNotOkCount'
+            ] if col in statistics_df.columns]
 
-                st.dataframe(
-                    display_df,
-                    use_container_width=True,
-                    hide_index=True,
-                    height=min(600, 36 * len(display_df) + 50)
-                )
+            display_df = statistics_df[display_cols].copy()
+            for col in ['MinValue', 'OptimalValue', 'MaxValue', 'MeanValue', 'StdDev']:
+                if col in display_df.columns:
+                    display_df[col] = display_df[col].apply(lambda x: f"{float(x):.4f}" if pd.notna(x) else "—")
+
+            st.dataframe(
+                display_df,
+                use_container_width=True,
+                hide_index=True,
+                height=min(600, 36 * len(display_df) + 50)
+            )
         else:
             st.error("Failed to save datasheet to database.")
     else:

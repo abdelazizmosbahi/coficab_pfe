@@ -2145,15 +2145,15 @@ def get_last_10_runs_for_recipe(machine_code: str, recipe_identifier: str) -> pd
 
 
 @st.cache_data
-def get_last_10_runs_for_machine_with_recipe(machine_code: str, opcnodeids: list) -> pd.DataFrame:
-    """Get last 10 runs for a machine (optionally filtered by recipe parameters)."""
+def get_last_10_runs_for_machine_with_recipe(machine_code: str, opcnodeids: list, limit: int | None = None) -> pd.DataFrame:
+    """Get runs for a machine. If limit is None, returns all runs."""
     if not machine_code:
         return pd.DataFrame()
 
     try:
-        # Start with simple query (more reliable)
-        query = """
-            SELECT TOP 10
+        top_clause = f"TOP {int(limit)}" if limit is not None else ""
+        query = f"""
+            SELECT {top_clause}
                 pr.[RunId],
                 pr.[MachineCode],
                 pr.[StartTs],
@@ -2369,13 +2369,6 @@ def get_labeled_samples_from_runs(machine_code: str, runs: pd.DataFrame,
     run_ids = runs['RunId'].tolist()
 
     try:
-        # Debug: Show run info
-        with st.expander("🔧 Sample Collection Debug Info"):
-            st.write(f"Total runs: {len(runs)}")
-            st.write(f"Total parameters to query: {len(param_list)}")
-            for idx, run in runs.iterrows():
-                st.write(f"  Run {idx}: ID={run.get('RunId')}, Start={run.get('StartTs')}, End={run.get('EndTs')}")
-
         with get_engine().connect() as c:
             run_ids_str = ','.join([f"'{r}'" for r in run_ids])
             quality_df = pd.read_sql(
@@ -2705,7 +2698,8 @@ def load_distinct_recipes(machine_code: str) -> list:
 
 
 def save_recipe_datasheet(machine_code: str, recipe_identifier: str, 
-                         parameter_statistics: pd.DataFrame) -> bool:
+                         parameter_statistics: pd.DataFrame,
+                         datasheet_run_id: int | None = None) -> bool:
     """
     Save recipe-aware parameter datasheet to database.
     
@@ -2713,12 +2707,14 @@ def save_recipe_datasheet(machine_code: str, recipe_identifier: str,
         machine_code: Machine code
         recipe_identifier: Recipe identifier
         parameter_statistics: DataFrame with calculated statistics
+        datasheet_run_id: DatasheetRunId to link parameters to a specific run
         
     Returns:
         True if successful, False otherwise
     """
     try:
         enhance_parameter_reference_datasheet_table()
+        enhance_parameter_reference_datasheet_with_run_id()
         
         with get_engine().begin() as c:
             for _, row in parameter_statistics.iterrows():
@@ -2750,6 +2746,7 @@ def save_recipe_datasheet(machine_code: str, recipe_identifier: str,
                             SampleCount = :sample_count,
                             QualityOkCount = :ok_count,
                             QualityNotOkCount = :not_ok_count,
+                            DatasheetRunId = :run_id,
                             UpdatedAt = GETDATE()
                         WHERE MachineCode = :machine AND OpcNodeId = :opc_node AND RecipeIdentifier = :recipe
                     """), {
@@ -2763,7 +2760,8 @@ def save_recipe_datasheet(machine_code: str, recipe_identifier: str,
                         "std_dev": float(row['StdDev']) if pd.notna(row['StdDev']) else None,
                         "sample_count": int(row['SampleCount']) if pd.notna(row['SampleCount']) else 0,
                         "ok_count": int(row['QualityOkCount']) if pd.notna(row['QualityOkCount']) else 0,
-                        "not_ok_count": int(row['QualityNotOkCount']) if pd.notna(row['QualityNotOkCount']) else 0
+                        "not_ok_count": int(row['QualityNotOkCount']) if pd.notna(row['QualityNotOkCount']) else 0,
+                        "run_id": datasheet_run_id
                     })
                 else:
                     # Insert new
@@ -2771,10 +2769,10 @@ def save_recipe_datasheet(machine_code: str, recipe_identifier: str,
                         INSERT INTO [model_schema].[parameter_reference_datasheet]
                         (MachineCode, RecipeIdentifier, OpcNodeId, ParameterName, 
                          MinValue, OptimalValue, MaxValue, MeanValue, StdDev, SampleCount,
-                         QualityOkCount, QualityNotOkCount)
+                         QualityOkCount, QualityNotOkCount, DatasheetRunId)
                         VALUES (:machine, :recipe, :opc_node, :param_name,
                                 :min_val, :optimal_val, :max_val, :mean_val, :std_dev, :sample_count,
-                                :ok_count, :not_ok_count)
+                                :ok_count, :not_ok_count, :run_id)
                     """), {
                         "machine": machine_code,
                         "recipe": recipe_identifier,
@@ -2787,7 +2785,8 @@ def save_recipe_datasheet(machine_code: str, recipe_identifier: str,
                         "std_dev": float(row['StdDev']) if pd.notna(row['StdDev']) else None,
                         "sample_count": int(row['SampleCount']) if pd.notna(row['SampleCount']) else 0,
                         "ok_count": int(row['QualityOkCount']) if pd.notna(row['QualityOkCount']) else 0,
-                        "not_ok_count": int(row['QualityNotOkCount']) if pd.notna(row['QualityNotOkCount']) else 0
+                        "not_ok_count": int(row['QualityNotOkCount']) if pd.notna(row['QualityNotOkCount']) else 0,
+                        "run_id": datasheet_run_id
                     })
         
         # Clear cache
@@ -2969,6 +2968,7 @@ def load_datasheet_by_run_id(machine_code: str, datasheet_run_id: int) -> pd.Dat
         DataFrame with parameter statistics for the specified run
     """
     try:
+        enhance_parameter_reference_datasheet_with_run_id()
         with get_engine().connect() as c:
             df = pd.read_sql(
                 text("""
@@ -2987,6 +2987,7 @@ def load_datasheet_by_run_id(machine_code: str, datasheet_run_id: int) -> pd.Dat
                     LEFT JOIN [model_schema].[parameter_reference_datasheet] prd 
                         ON dr.MachineCode = prd.MachineCode 
                         AND dr.RecipeIdentifier = prd.RecipeIdentifier
+                        AND prd.DatasheetRunId = dr.DatasheetRunId
                     WHERE dr.DatasheetRunId = :run_id 
                     AND dr.MachineCode = :machine
                     ORDER BY prd.OpcNodeId
