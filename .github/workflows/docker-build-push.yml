@@ -40,10 +40,16 @@ jobs:
 
       - name: Extract Docker metadata
         id: meta
-        uses: docker/metadata-action@v6      # ← Updated to v6
+        uses: docker/metadata-action@v6
+        with:
+          images: ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=sha,prefix={{branch}}-
+            type=ref,event=branch
 
       - name: Build and push Docker image
-        uses: docker/build-push-action@v7    # ← Latest
+        uses: docker/build-push-action@v7
         with:
           context: ./cable_maintenance_ai
           file: ./cable_maintenance_ai/Dockerfile
@@ -56,10 +62,10 @@ jobs:
       - name: Build Summary
         run: |
           echo "## 🐳 Docker Build Summary" >> $GITHUB_STEP_SUMMARY
-          echo "- **Image**: ghcr.io/abdelazizmosbahi/cable-maintenance-ai" >> $GITHUB_STEP_SUMMARY
-          echo "- **Tags**: ${{ steps.meta.outputs.tags }}" >> $GITHUB_STEP_SUMMARY
-        echo "- **Status**: ✅ Successfully built & pushed" >> $GITHUB_STEP_SUMMARY
-        
+          echo "- Image: ghcr.io/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Tags: ${{ steps.meta.outputs.tags }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Status: ✅ Build & Push Completed" >> $GITHUB_STEP_SUMMARY
+
   test:
     runs-on: ubuntu-latest
     needs: build
