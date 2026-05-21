@@ -1,8 +1,10 @@
 name: Build and Push Docker Image to GHCR
 
-# Suppress Node.js 20 deprecation warning
+# Global Environment Variables + Node.js 24 Fix
 env:
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  REGISTRY: ghcr.io
+  IMAGE_NAME: cable-maintenance-ai
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true     # ← This fixes the warning
   
 on:
   push:
@@ -15,10 +17,6 @@ on:
   pull_request:
     branches: [ main ]
   workflow_dispatch:
-
-env:
-  REGISTRY: ghcr.io
-  IMAGE_NAME: cable-maintenance-ai
 
 jobs:
   build:
