@@ -731,7 +731,8 @@ with st.spinner("Discovering parameters for this run..."):
     discovered_params = get_all_params_in_time_window(
         selected_machine,
         selected_run_id["StartTs"],
-        selected_run_id["EndTs"]
+        selected_run_id["EndTs"],
+        run_id=selected_run_id["RunId"]
     )
 
 if discovered_params:
@@ -746,8 +747,8 @@ if discovered_params:
             height=400
         )
 else:
-    st.error("❌ No parameters available for this machine at all.")
-    st.error("This indicates a database connectivity issue or the machine has no recorded data.")
+    st.error(f"❌ No parameters found for ProductionRunId = {selected_run_id['RunId']}.")
+    st.warning("This production run has no sensor data linked to it in MachineTagValue. Select a different production run that has data.")
     st.stop()
 
 

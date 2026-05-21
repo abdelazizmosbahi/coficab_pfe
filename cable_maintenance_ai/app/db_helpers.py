@@ -2276,15 +2276,17 @@ def filter_runs_by_available_data(machine_code: str, runs_df: pd.DataFrame) -> p
 
 
 @st.cache_data(ttl=30)
-def get_all_params_in_time_window(machine_code: str, start_ts, end_ts) -> list:
+def get_all_params_in_time_window(machine_code: str, start_ts, end_ts, run_id: str = None) -> list:
     """
-    Discover parameters for a specific production run - SQL Server compatible.
+    Discover parameters for a specific production run by ProductionRunId.
     
-    Uses 3-tier strategy without problematic DISTINCT+TOP+ORDER BY patterns.
-    Tier 1: Run window with ±2 hour buffer
-    Tier 2: Exact run times with ±6 hour buffer (generous for data alignment)
-    Tier 3: All historical parameters
+    Only queries by ProductionRunId — no time buffers, no fallback tiers.
+    Returns empty list if the ProductionRunId has no rows in MachineTagValue.
     """
+    if not run_id:
+        st.error("❌ No ProductionRunId provided — cannot discover parameters.")
+        return []
+
     try:
         start_ts = pd.to_datetime(start_ts).tz_localize(None)
         end_ts = pd.to_datetime(end_ts).tz_localize(None)
@@ -2294,87 +2296,27 @@ def get_all_params_in_time_window(machine_code: str, start_ts, end_ts) -> list:
             st.write(f"Machine: {machine_code}")
             st.write(f"Selected run start: {start_ts}")
             st.write(f"Selected run end: {end_ts}")
+            st.write(f"RunId: {run_id}")
 
-        # ===== TIER 1: Try run window with ±2 hour buffer =====
-        start_buffer = start_ts - pd.Timedelta(hours=2)
-        end_buffer = end_ts + pd.Timedelta(hours=2)
-
-        # SAFE SQL: No TOP, no ORDER BY with DISTINCT
-        tier1_query = """
+        query = """
             SELECT DISTINCT OpcNodeId
             FROM MachineTagValue WITH (NOLOCK)
             WHERE MachineCode = :machine
-              AND SourceTimestamp >= :start_ts 
-              AND SourceTimestamp <= :end_ts
+              AND ProductionRunId = :run_id
         """
-
         with get_engine().connect() as c:
-            df = pd.read_sql(text(tier1_query), c, params={
+            df = pd.read_sql(text(query), c, params={
                 "machine": machine_code,
-                "start_ts": start_buffer,
-                "end_ts": end_buffer
+                "run_id": run_id
             })
 
-        if not df.empty:
-            params = sorted(df['OpcNodeId'].dropna().unique().tolist())
-            st.success(f"✅ Found {len(params)} parameters using Tier 1 strategy (±2hr buffer)")
-            with st.expander("🔧 Parameter Discovery Debug Info"):
-                st.write(f"Tier 1 range: {start_buffer} to {end_buffer}")
-                st.write(f"Parameters found: {len(params)}")
-            return params
+        if df.empty:
+            st.warning(f"⚠️ No MachineTagValue rows found for ProductionRunId = {run_id}")
+            return []
 
-        # ===== TIER 2: Generous run window (±6 hours buffer) =====
-        st.info("⚠️  Tier 1 empty. Trying Tier 2 (run window ±6 hours)...")
-        
-        start_generous = start_ts - pd.Timedelta(hours=6)
-        end_generous = end_ts + pd.Timedelta(hours=6)
-        
-        tier2_query = """
-            SELECT DISTINCT OpcNodeId
-            FROM MachineTagValue WITH (NOLOCK)
-            WHERE MachineCode = :machine
-              AND SourceTimestamp >= :start_ts 
-              AND SourceTimestamp <= :end_ts
-        """
-
-        with get_engine().connect() as c:
-            df_exact = pd.read_sql(text(tier2_query), c, params={
-                "machine": machine_code,
-                "start_ts": start_generous,
-                "end_ts": end_generous
-            })
-
-        if not df_exact.empty:
-            params = sorted(df_exact['OpcNodeId'].dropna().unique().tolist())
-            st.warning(f"📊 Found {len(params)} parameters using Tier 2 strategy (±6hr buffer)")
-            with st.expander("🔧 Parameter Discovery Debug Info"):
-                st.write(f"Tier 2 range: {start_generous} to {end_generous}")
-                st.write(f"Parameters found: {len(params)}")
-            return params
-
-        # ===== TIER 3: All historical parameters for machine =====
-        st.info("⚠️  Tiers 1 & 2 empty. Using Tier 3 (all historical parameters)...")
-        
-        tier3_query = """
-            SELECT DISTINCT OpcNodeId
-            FROM MachineTagValue WITH (NOLOCK)
-            WHERE MachineCode = :machine
-        """
-
-        with get_engine().connect() as c:
-            df_all = pd.read_sql(text(tier3_query), c, params={"machine": machine_code})
-
-        if not df_all.empty:
-            params = sorted(df_all['OpcNodeId'].dropna().unique().tolist())
-            st.info(f"📊 Using Tier 3 strategy: {len(params)} all-time parameters for {machine_code}")
-            with st.expander("🔧 Parameter Discovery Debug Info"):
-                st.write(f"Tier 3: All-time query")
-                st.write(f"Parameters found: {len(params)}")
-            return params
-
-        # ===== NO PARAMETERS FOUND =====
-        st.error(f"❌ No parameters found for {machine_code} in any tier")
-        return []
+        params = sorted(df['OpcNodeId'].dropna().unique().tolist())
+        st.success(f"✅ Found {len(params)} parameters for ProductionRunId = {run_id}")
+        return params
 
     except Exception as e:
         st.error(f"❌ Parameter discovery failed: {str(e)}")
