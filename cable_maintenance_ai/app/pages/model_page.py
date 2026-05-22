@@ -784,7 +784,7 @@ def _get_cached_3second_data(mc: str, param: str) -> pd.DataFrame:
     return st.session_state[cache_key]
 
 
-def _render_3second_fast_trace(mc: str, param: str, v_min: float, v_max: float, v_mean: float):
+def _render_3second_fast_trace(mc: str, param: str, v_min: float, v_max: float, v_mean: float, overlay_param: str = None):
     """Render fast 3-second window - no database delay, uses cache. Perfect for initial load."""
     try:
         from datetime import datetime, timedelta
@@ -850,10 +850,58 @@ def _render_3second_fast_trace(mc: str, param: str, v_min: float, v_max: float, 
             hovertemplate="%{x|%H:%M:%S}<br>Value: %{y:.4f}<extra></extra>",
         ))
         
+        # ── Overlay trace ──
+        overlay_data = None
+        overlay_param_short = None
+        use_secondary_yaxis = False
+        if overlay_param and overlay_param != "None":
+            overlay_raw = _get_cached_3second_data(mc, overlay_param)
+            if overlay_raw is not None and not overlay_raw.empty:
+                overlay_raw["Value"] = pd.to_numeric(overlay_raw["Value"], errors="coerce")
+                overlay_raw = overlay_raw.dropna(subset=["Value"])
+                if not overlay_raw.empty:
+                    overlay_data = overlay_raw
+                    overlay_param_short = overlay_param.split(".")[-1].replace("_ACT", "")
+                    
+                    primary_range = recent_data["Value"].max() - recent_data["Value"].min()
+                    ov_range = overlay_data["Value"].max() - overlay_data["Value"].min()
+                    if primary_range > 0 and ov_range > 0 and \
+                       max(primary_range, ov_range) / min(primary_range, ov_range) > 5:
+                        use_secondary_yaxis = True
+                        yaxis_ref = "y2"
+                    else:
+                        yaxis_ref = "y"
+                    
+                    fig.add_trace(go.Scatter(
+                        x=overlay_data["SourceTimestamp"],
+                        y=overlay_data["Value"],
+                        mode="lines+markers",
+                        name=overlay_param_short,
+                        line=dict(color="#ff7f0e", width=2),
+                        marker=dict(size=5),
+                        yaxis=yaxis_ref,
+                        hovertemplate="%{x|%H:%M:%S}<br>Value: %{y:.4f}<extra></extra>",
+                    ))
+        
+        # Expand y-axis range to include overlay values when on same axis
+        if not use_secondary_yaxis and specs_defined and overlay_data is not None and not overlay_data.empty:
+            ov_min = overlay_data["Value"].min()
+            ov_max = overlay_data["Value"].max()
+            if ov_min < y_lo:
+                y_lo = ov_min - (ov_max - ov_min) * 0.1
+            if ov_max > y_hi:
+                y_hi = ov_max + (ov_max - ov_min) * 0.1
+        
+        # Build title
+        title_param = param.split(".")[-1].replace("_ACT", "")
+        title_text = f"Last 3 Seconds (FAST): {title_param}"
+        if overlay_param_short:
+            title_text += f" vs {overlay_param_short}"
+        
         # Update layout
         layout_kwargs = dict(
             title=dict(
-                text=f"Last 3 Seconds (FAST): {param.split('.')[-1].replace('_ACT', '')}",
+                text=title_text,
                 font=dict(size=16),
                 x=0.5,
                 xanchor="center",
@@ -867,6 +915,14 @@ def _render_3second_fast_trace(mc: str, param: str, v_min: float, v_max: float, 
             showlegend=True,
             legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="center", x=0.5),
         )
+        
+        if use_secondary_yaxis and overlay_data is not None:
+            layout_kwargs["yaxis2"] = dict(
+                title=overlay_param_short,
+                overlaying="y",
+                side="right",
+                autorange=True,
+            )
         
         if specs_defined:
             layout_kwargs["yaxis"] = dict(range=[y_lo, y_hi])
@@ -897,7 +953,7 @@ def _render_3second_fast_trace(mc: str, param: str, v_min: float, v_max: float, 
         st.error(f"Error loading 3-second traceability: {str(e)}")
 
 
-def _render_full_timeline_incremental(mc: str, param: str, v_min: float, v_max: float, v_mean: float):
+def _render_full_timeline_incremental(mc: str, param: str, v_min: float, v_max: float, v_mean: float, overlay_param: str = None):
     """
     Render full timeline chart - STATIC SNAPSHOT from start until button click moment.
     The 3-second window updates in background, but this chart stays frozen.
@@ -948,6 +1004,35 @@ def _render_full_timeline_incremental(mc: str, param: str, v_min: float, v_max: 
             start_time_str = start_time[:16]
         else:
             start_time_str = start_time.strftime('%Y-%m-%d %H:%M')
+        
+        # ── Load overlay data ──
+        overlay_data = None
+        overlay_param_short = None
+        use_secondary_yaxis = False
+        if overlay_param and overlay_param != "None":
+            overlay_cache_key = f"full_trace_overlay_{mc}_{overlay_param}"
+            if overlay_cache_key not in st.session_state:
+                with st.spinner(f"🔄 Loading overlay history for {overlay_param.split('.')[-1].replace('_ACT', '')}..."):
+                    ov_hist = pd.read_sql(
+                        text("""SELECT SourceTimestamp, Value FROM MachineTagValue 
+                           WHERE MachineCode = :mc AND OpcNodeId = :param 
+                           ORDER BY SourceTimestamp"""),
+                        params={"mc": mc, "param": overlay_param},
+                        con=get_engine()
+                    )
+                    if ov_hist.empty:
+                        st.warning(f"No historical data found for overlay parameter.")
+                    else:
+                        ov_hist["Value"] = pd.to_numeric(ov_hist["Value"], errors="coerce")
+                        st.session_state[overlay_cache_key] = ov_hist
+            
+            if overlay_cache_key in st.session_state:
+                ov_data = st.session_state[overlay_cache_key].copy()
+                if snapshot_time:
+                    ov_data = ov_data[ov_data["SourceTimestamp"] <= snapshot_time].copy()
+                if not ov_data.empty:
+                    overlay_data = ov_data
+                    overlay_param_short = overlay_param.split(".")[-1].replace("_ACT", "")
         
         # Build the chart
         fig = go.Figure()
@@ -1003,11 +1088,50 @@ def _render_full_timeline_incremental(mc: str, param: str, v_min: float, v_max: 
             hovertemplate="%{x|%Y-%m-%d %H:%M:%S}<br>Value: %{y:.4f}<extra></extra>",
         ))
         
+        # ── Overlay trace ──
+        if overlay_data is not None and not overlay_data.empty:
+            overlay_data["Value"] = pd.to_numeric(overlay_data["Value"], errors="coerce")
+            
+            primary_range = full_data["Value"].max() - full_data["Value"].min()
+            ov_range = overlay_data["Value"].max() - overlay_data["Value"].min()
+            if primary_range > 0 and ov_range > 0 and \
+               max(primary_range, ov_range) / min(primary_range, ov_range) > 5:
+                use_secondary_yaxis = True
+                yaxis_ref = "y2"
+            else:
+                yaxis_ref = "y"
+            
+            fig.add_trace(go.Scatter(
+                x=overlay_data["SourceTimestamp"],
+                y=overlay_data["Value"],
+                mode="lines+markers",
+                name=overlay_param_short,
+                line=dict(color="#ff7f0e", width=1),
+                marker=dict(size=2),
+                yaxis=yaxis_ref,
+                hovertemplate="%{x|%Y-%m-%d %H:%M:%S}<br>Value: %{y:.4f}<extra></extra>",
+            ))
+        
+        # Expand y-axis range to include overlay values when on same axis
+        if not use_secondary_yaxis and specs_defined and overlay_data is not None and not overlay_data.empty:
+            ov_min = overlay_data["Value"].min()
+            ov_max = overlay_data["Value"].max()
+            if ov_min < y_lo:
+                y_lo = ov_min - (ov_max - ov_min) * 0.1
+            if ov_max > y_hi:
+                y_hi = ov_max + (ov_max - ov_min) * 0.1
+        
         # Display snapshot info if available
-        if snapshot_time:
-            title_text = f"{param.split('.')[-1].replace('_ACT', '')} — From {start_time_str} to {end_time_display} (SNAPSHOT)"
+        title_param = param.split(".")[-1].replace("_ACT", "")
+        if overlay_param_short:
+            title_base = f"{title_param} vs {overlay_param_short}"
         else:
-            title_text = f"{param.split('.')[-1].replace('_ACT', '')} — From {start_time_str} to Now"
+            title_base = title_param
+        
+        if snapshot_time:
+            title_text = f"{title_base} — From {start_time_str} to {end_time_display} (SNAPSHOT)"
+        else:
+            title_text = f"{title_base} — From {start_time_str} to Now"
         
         layout_kwargs = dict(
             title=dict(
@@ -1025,6 +1149,14 @@ def _render_full_timeline_incremental(mc: str, param: str, v_min: float, v_max: 
             showlegend=True,
             legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="center", x=0.5),
         )
+        
+        if use_secondary_yaxis and overlay_data is not None:
+            layout_kwargs["yaxis2"] = dict(
+                title=overlay_param_short,
+                overlaying="y",
+                side="right",
+                autorange=True,
+            )
         
         if specs_defined:
             layout_kwargs["yaxis"] = dict(range=[y_lo, y_hi])
@@ -1584,6 +1716,27 @@ if show_fullscreen:
             
             st.markdown("---")
             
+            # ── Overlay / compare parameter selector (from monitored params only) ──
+            overlay_param = None
+            try:
+                monitor_params = config_row.get("MonitoringParameters", [])
+                if isinstance(monitor_params, str):
+                    import json
+                    monitor_params = json.loads(monitor_params)
+                monitored_df = reference_df[reference_df["OpcNodeId"].isin(monitor_params)] if not reference_df.empty else pd.DataFrame()
+                eligible = monitored_df["OpcNodeId"].tolist()
+                eligible = [p for p in eligible if p != fp_to_show]
+                if eligible:
+                    st.markdown("**🔀 Compare with another parameter:**")
+                    display_opts = ["None"] + [p.split(".")[-1].replace("_ACT", "") for p in eligible]
+                    sel = st.selectbox("Select parameter to overlay:", options=display_opts, index=0,
+                                       key=f"fullscreen_overlay_{fp_to_show}")
+                    if sel != "None":
+                        overlay_param = eligible[display_opts.index(sel) - 1]
+            except Exception:
+                overlay_param = None
+            # ── End overlay selector ──
+            
             if show_full_timeline:
                 # FULL TIMELINE MODE - STATIC SNAPSHOT
                 st.markdown('<p class="cofi-section-title">⏱️ Full Parameter Activity Timeline (Historical Snapshot)</p>', unsafe_allow_html=True)
@@ -1595,7 +1748,7 @@ if show_fullscreen:
                     st.caption("📊 Complete history from start")
                 
                 try:
-                    _render_full_timeline_incremental(machine_code, fp_to_show, fp_min, fp_max, fp_mean)
+                    _render_full_timeline_incremental(machine_code, fp_to_show, fp_min, fp_max, fp_mean, overlay_param=overlay_param)
                 except Exception as e:
                     st.error(f"ERROR rendering full timeline: {str(e)}")
                     import traceback
@@ -1606,7 +1759,7 @@ if show_fullscreen:
                 st.caption("🔄 Window slides every second: oldest drops, newest enters = zero delay!")
                 
                 try:
-                    _render_3second_fast_trace(machine_code, fp_to_show, fp_min, fp_max, fp_mean)
+                    _render_3second_fast_trace(machine_code, fp_to_show, fp_min, fp_max, fp_mean, overlay_param=overlay_param)
                 except Exception as e:
                     st.error(f"ERROR rendering 3-second trace: {str(e)}")
                     import traceback
