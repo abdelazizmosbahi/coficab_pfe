@@ -381,9 +381,9 @@ if not previous_runs.empty:
 else:
     st.info(f"No previous datasheet runs found for {selected_machine}. Generate your first datasheet to get started!")
 
-# ── Step 2: Select Parameters to Monitor ────────────────────────────────────
+# ── Step 2: Select Parameters to Analyse ────────────────────────────────────
 st.markdown("---")
-st.markdown('<p class="cofi-section-title">Step 2: Select Parameters to Monitor</p>', unsafe_allow_html=True)
+st.markdown('<p class="cofi-section-title">Step 2: Select Parameters to Analyse</p>', unsafe_allow_html=True)
 st.caption("Pick the parameters to analyze and designate which are recipe parameters.")
 
 all_parameters = load_all_parameters_for_machine(selected_machine)
@@ -394,7 +394,7 @@ if not all_parameters:
 col1, col2 = st.columns(2)
 
 with col1:
-    st.markdown("**Parameters to Monitor**")
+    st.markdown("**Parameters to Analyse**")
     selected_monitoring_params = st.multiselect(
         "Select parameters to analyze:",
         options=all_parameters,
@@ -414,7 +414,7 @@ with col2:
     )
 
 if not selected_monitoring_params:
-    st.info("Select at least one parameter to monitor to continue.")
+    st.info("Select at least one parameter to analyse to continue.")
     st.stop()
 
 # Validate recipe params are a subset of monitoring params
@@ -763,6 +763,15 @@ if st.button(
     with st.spinner("Calculating parameter statistics from samples..."):
         statistics_df = calculate_recipe_parameter_statistics_from_samples(labeled_samples)
 
+    # Exclude recipe parameters from datasheet (only analyse parameters)
+    if not selected_recipe_params:
+        pass
+    else:
+        removed_count = statistics_df['OpcNodeId'].isin(selected_recipe_params).sum()
+        statistics_df = statistics_df[~statistics_df['OpcNodeId'].isin(selected_recipe_params)]
+        if removed_count > 0:
+            st.info(f"ℹ️ Excluded {removed_count} recipe parameter(s) from datasheet: {', '.join(selected_recipe_params)}")
+
     if statistics_df.empty:
         st.error("❌ No valid statistics computed from samples")
         st.stop()
@@ -808,8 +817,12 @@ if st.button(
 
             st.markdown(f"**Analysis Date:** {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
 
+            # Add column showing which parameters are tagged as recipe
+            recipe_params_str = ', '.join(selected_recipe_params) if selected_recipe_params else '—'
+            statistics_df['RecipeParameters'] = recipe_params_str
+
             display_cols = [col for col in [
-                'OpcNodeId', 'MinValue', 'OptimalValue',
+                'OpcNodeId', 'RecipeParameters', 'MinValue', 'OptimalValue',
                 'MaxValue', 'MeanValue', 'StdDev', 'SampleCount',
                 'QualityOkCount', 'QualityNotOkCount'
             ] if col in statistics_df.columns]
