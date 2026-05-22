@@ -1663,7 +1663,7 @@ show_fullscreen = bool(fp_to_show or rca_to_show)
 
 if show_fullscreen:
     # Load config data for fullscreen view
-    configs_df = load_machine_configurations()
+    configs_df = load_machine_configurations(config_type="realtime")
     selected_config_id = st.session_state.get("selected_config")
     if selected_config_id and not configs_df.empty:
         config_row = configs_df[configs_df["ConfigurationId"] == selected_config_id].iloc[0]
@@ -1871,7 +1871,7 @@ if "completion_time" not in st.session_state:
     st.session_state.completion_time = None
 
 # ── Data: configurations ─────────────────────────────────────────────────────
-configs_df = load_machine_configurations()
+configs_df = load_machine_configurations(config_type="realtime")
 
 if configs_df.empty:
     st.warning("⚠️ No configurations found. Create one in the Configuration Manager first.")

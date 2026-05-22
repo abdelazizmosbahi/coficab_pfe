@@ -44,7 +44,7 @@ docker-compose --version
 
 ```bash
 # 1. Clone the repository
-git clone https://github.com/yourusername/coficab_ai_agent.git
+git clone https://github.com/abdelazizmosbahi/coficab_ai_agent.git
 cd coficab_ai_agent
 
 # 2. Create environment file
@@ -69,7 +69,7 @@ docker login ghcr.io
 # Enter username and GitHub Personal Access Token
 
 # 2. Pull the latest image
-docker pull ghcr.io/yourusername/cable-maintenance-ai:latest
+docker pull ghcr.io/abdelazizmosbahi/cable-maintenance-ai:latest
 
 # 3. Run the container
 docker run -d \
@@ -82,7 +82,7 @@ docker run -d \
   -e DB_NAME=cable_manufacturing \
   -e MISTRAL_API_KEY=your-mistral-key \
   --restart unless-stopped \
-  ghcr.io/yourusername/cable-maintenance-ai:latest
+  ghcr.io/abdelazizmosbahi/cable-maintenance-ai:latest
 ```
 
 ---
@@ -131,10 +131,10 @@ The GitHub Actions workflow automatically handles authentication.
 ### Step 3: Pull the Image
 
 ```bash
-docker pull ghcr.io/yourusername/cable-maintenance-ai:latest
+docker pull ghcr.io/abdelazizmosbahi/cable-maintenance-ai:latest
 
 # Or pull a specific version (e.g., git commit SHA)
-docker pull ghcr.io/yourusername/cable-maintenance-ai:main-abc123def
+docker pull ghcr.io/abdelazizmosbahi/cable-maintenance-ai:main-abc123def
 ```
 
 ---
@@ -206,7 +206,7 @@ docker run -d \
   --log-driver json-file \
   --log-opt max-size=10m \
   --log-opt max-file=3 \
-  ghcr.io/yourusername/cable-maintenance-ai:latest
+  ghcr.io/abdelazizmosbahi/cable-maintenance-ai:latest
 
 # View logs
 docker logs -f cable-ai
@@ -298,7 +298,7 @@ docker login ghcr.io
 docker image ls | grep cable-maintenance-ai
 
 # Pull the latest image
-docker pull ghcr.io/yourusername/cable-maintenance-ai:latest
+docker pull ghcr.io/abdelazizmosbahi/cable-maintenance-ai:latest
 ```
 
 ### Restart Strategy
@@ -326,7 +326,7 @@ docker-compose up -d
 # docker-compose.yml - Production config
 services:
   cable-ai:
-    image: ghcr.io/yourusername/cable-maintenance-ai:latest
+    image: ghcr.io/abdelazizmosbahi/cable-maintenance-ai:latest
     restart: always
     logging:
       driver: "json-file"
@@ -350,7 +350,7 @@ git pull origin main
 cat .env
 
 # 3. Pull latest image from GHCR
-docker pull ghcr.io/yourusername/cable-maintenance-ai:latest
+docker pull ghcr.io/abdelazizmosbahi/cable-maintenance-ai:latest
 
 # 4. Create new container (old one stops gracefully)
 docker-compose up -d
@@ -386,10 +386,10 @@ chmod +x /home/deploy/update-cable-ai.sh
 
 ```bash
 # Pull a specific version by git commit SHA
-docker pull ghcr.io/yourusername/cable-maintenance-ai:main-abc123def
+docker pull ghcr.io/abdelazizmosbahi/cable-maintenance-ai:latest
 
 # Update docker-compose.yml
-image: ghcr.io/yourusername/cable-maintenance-ai:main-abc123def
+image: ghcr.io/abdelazizmosbahi/cable-maintenance-ai:latest
 
 # Deploy
 docker-compose up -d
@@ -403,8 +403,8 @@ docker-compose exec cable-ai \
   python -c "import backup_module; backup_module.backup_db()"
 
 # Keep previous image
-docker tag ghcr.io/yourusername/cable-maintenance-ai:latest \
-           ghcr.io/yourusername/cable-maintenance-ai:latest-backup
+docker tag ghcr.io/abdelazizmosbahi/cable-maintenance-ai:latest \
+           ghcr.io/abdelazizmosbahi/cable-maintenance-ai:latest
 ```
 
 ---
@@ -413,10 +413,10 @@ docker tag ghcr.io/yourusername/cable-maintenance-ai:latest \
 
 ```bash
 # View image details
-docker inspect ghcr.io/yourusername/cable-maintenance-ai:latest
+docker inspect ghcr.io/abdelazizmosbahi/cable-maintenance-ai:latest
 
 # View image layers and history
-docker history ghcr.io/yourusername/cable-maintenance-ai:latest
+docker history ghcr.io/abdelazizmosbahi/cable-maintenance-ai:latest
 
 # Remove old/unused images
 docker image prune
@@ -424,7 +424,7 @@ docker image prune
 # Run container with interactive shell (for debugging)
 docker run -it --rm \
   -e DB_HOST=... \
-  ghcr.io/yourusername/cable-maintenance-ai:latest \
+  ghcr.io/abdelazizmosbahi/cable-maintenance-ai:latest \
   /bin/bash
 
 # Check disk usage
@@ -438,9 +438,9 @@ docker system prune -a
 
 ## 📞 Support & Issues
 
-- **GitHub Issues**: [Report a bug](https://github.com/yourusername/coficab_ai_agent/issues)
+- **GitHub Issues**: [Report a bug](https://github.com/abdelazizmosbahi/coficab_ai_agent/issues)
 - **Documentation**: See `README.md` for architecture and features
-- **CI/CD Logs**: Check [GitHub Actions](https://github.com/yourusername/coficab_ai_agent/actions) for build status
+- **CI/CD Logs**: Check [GitHub Actions](https://github.com/abdelazizmosbahi/coficab_ai_agent/actions) for build status
 
 ---
 
