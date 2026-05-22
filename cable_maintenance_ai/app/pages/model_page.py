@@ -36,6 +36,7 @@ from db_helpers import (
     load_working_machines,
     load_parameter_reference_datasheet,
     analyze_parameter_anomaly,
+    call_mistral_ai,
     get_machine_status_for,
     get_machine_status_by_linespeed,
     store_analysis_results,
@@ -907,21 +908,22 @@ def _render_full_timeline_incremental(mc: str, param: str, v_min: float, v_max: 
         
         # Initialize full cache if needed (load all historical data once)
         if full_cache_key not in st.session_state:
-            hist_data = pd.read_sql(
-                text("""SELECT SourceTimestamp, Value FROM MachineTagValue 
-                   WHERE MachineCode = :mc AND OpcNodeId = :param 
-                   ORDER BY SourceTimestamp"""),
-                params={"mc": mc, "param": param},
-                con=get_engine()
-            )
-            
-            if hist_data.empty:
-                st.info("No historical data found for this parameter.")
-                return
-            
-            # Convert to numeric
-            hist_data["Value"] = pd.to_numeric(hist_data["Value"], errors="coerce")
-            st.session_state[full_cache_key] = hist_data
+            with st.spinner(f"🔄 Loading full history for {param.split('.')[-1].replace('_ACT', '')}..."):
+                hist_data = pd.read_sql(
+                    text("""SELECT SourceTimestamp, Value FROM MachineTagValue 
+                       WHERE MachineCode = :mc AND OpcNodeId = :param 
+                       ORDER BY SourceTimestamp"""),
+                    params={"mc": mc, "param": param},
+                    con=get_engine()
+                )
+                
+                if hist_data.empty:
+                    st.info("No historical data found for this parameter.")
+                    return
+                
+                # Convert to numeric
+                hist_data["Value"] = pd.to_numeric(hist_data["Value"], errors="coerce")
+                st.session_state[full_cache_key] = hist_data
         
         full_data = st.session_state[full_cache_key].copy()
         
@@ -1327,6 +1329,24 @@ def _render_param_trace(mc: str, param: str, v_min: float, v_max: float, v_mean:
         st.error(f"Error loading traceability: {str(e)}")
 
 
+def _build_rca_prompt(machine_code: str, param_name: str, current_val: float,
+                      rca_min: float, rca_max: float, out_of_range_type: str) -> str:
+    return f"""You are an expert industrial machine maintenance and diagnostics specialist.
+
+A manufacturing parameter on machine '{machine_code}' has gone out of specification:
+
+**Parameter:** {param_name}
+**Current Value:** {current_val:.2f}
+**Acceptable Range:** {rca_min:.1f} - {rca_max:.1f}
+**Status:** {out_of_range_type}
+**Deviation from target:** {current_val - (rca_min + rca_max) / 2:.2f}
+
+Please provide a concise root cause analysis with:
+1. Most likely root cause (1-2 sentences)
+2. Immediate corrective actions (2-3 bullet points)
+3. Preventive measures (2-3 bullet points)"""
+
+
 def _render_last_20_seconds_trace(mc: str, param: str, v_min: float, v_max: float, v_mean: float):
     """Render real-time traceability for the last 20 seconds, auto-refreshing every second."""
     try:
@@ -1507,12 +1527,11 @@ st.markdown(hero_html, unsafe_allow_html=True)
 # ════════════════════════════════════════════════════════════════════════════════
 fp_to_show = st.session_state.get("fullscreen_param")
 rca_to_show = st.session_state.get("fullscreen_rca_param")
+show_fullscreen = bool(fp_to_show or rca_to_show)
 
-if fp_to_show or rca_to_show:
-    # Load minimal config data for fullscreen view
+if show_fullscreen:
+    # Load config data for fullscreen view
     configs_df = load_machine_configurations()
-    
-    # Get the selected config if available
     selected_config_id = st.session_state.get("selected_config")
     if selected_config_id and not configs_df.empty:
         config_row = configs_df[configs_df["ConfigurationId"] == selected_config_id].iloc[0]
@@ -1530,6 +1549,7 @@ if fp_to_show or rca_to_show:
             with col1:
                 if st.button("⬅️ Back to Dashboard", use_container_width=True):
                     st.session_state.pop("fullscreen_param", None)
+                    st.session_state.pop("fullscreen_data", None)
             
             param_display_name = fp_to_show.split(".")[-1].replace("_ACT", "")
             st.markdown(f'<p class="cofi-section-title" style="margin-top:0;">📈 Real-Time Traceability: {param_display_name}</p>', unsafe_allow_html=True)
@@ -1592,23 +1612,14 @@ if fp_to_show or rca_to_show:
                     import traceback
                     st.error(traceback.format_exc())
             
-            # ── Auto-refresh ONLY in quick view mode (not for static full timeline) ──
-            if not show_full_timeline:
-                st.markdown("---")
-                with st.spinner("⏳ Updating every second from cache..."):
-                    time.sleep(1)  # 1 second refresh interval
-                st.rerun()  # Refresh the page after sleep
-            else:
-                # Full timeline is static - show message and allow user to switch back
+            # ── Full timeline is static - show message and allow user to switch back ──
+            if show_full_timeline:
                 st.markdown("---")
                 st.info("📌 **Static Snapshot Mode** — Full timeline is frozen. Switch back to Quick View to resume 1-second updates.")
                 
-                # Add a button to switch back to quick view
                 if st.button("↩️ Back to Quick View (Resume Updates)", use_container_width=True, key="back_to_quick_view"):
                     st.session_state["fullscreen_show_full_timeline"] = False
                     st.session_state.pop("fullscreen_full_timeline_snapshot_time", None)
-            
-            st.stop()  # Stop rendering main content when in traceability view
         
         # FULLSCREEN ROOT CAUSE ANALYSIS VIEW
         elif rca_to_show:
@@ -1617,6 +1628,7 @@ if fp_to_show or rca_to_show:
             with col1:
                 if st.button("⬅️ Back to Dashboard", use_container_width=True):
                     st.session_state.pop("fullscreen_rca_param", None)
+                    st.session_state.pop("fullscreen_data", None)
 
             rca_param_name = rca_to_show.get("name", "Unknown")
             rca_current_val = rca_to_show.get("val")
@@ -1637,64 +1649,60 @@ if fp_to_show or rca_to_show:
             st.markdown("---")
             st.markdown("### Analysis Result")
 
-            # Use Mistral SDK for parameter-specific root cause analysis
-            api_key = os.getenv("MISTRAL_API_KEY")
-            if not Mistral:
-                st.error("❌ Error: Mistral SDK not installed. Please install it with: pip install mistralai")
-            elif not api_key:
-                st.error("❌ Error: MISTRAL_API_KEY not found in environment.")
-            else:
-                with st.spinner("🧠 Analyzing parameter anomaly..."):
-                    # Determine out-of-range type
-                    if rca_current_val < rca_min:
-                        out_of_range_type = f"BELOW MINIMUM ({rca_min:.1f})"
-                    elif rca_current_val > rca_max:
-                        out_of_range_type = f"ABOVE MAXIMUM ({rca_max:.1f})"
-                    else:
-                        out_of_range_type = "OUT OF RANGE"
-                    
-                    prompt = f"""You are an expert industrial machine maintenance and diagnostics specialist.
+            # Use Mistral for parameter-specific root cause analysis
+            with st.spinner("🧠 Analyzing parameter anomaly..."):
+                # Determine out-of-range type
+                if rca_current_val < rca_min:
+                    out_of_range_type = f"BELOW MINIMUM ({rca_min:.1f})"
+                elif rca_current_val > rca_max:
+                    out_of_range_type = f"ABOVE MAXIMUM ({rca_max:.1f})"
+                else:
+                    out_of_range_type = "OUT OF RANGE"
 
-A manufacturing parameter on machine '{machine_code}' has gone out of specification:
-
-**Parameter:** {rca_param_name}
-**Current Value:** {rca_current_val:.2f}
-**Acceptable Range:** {rca_min:.1f} - {rca_max:.1f}
-**Status:** {out_of_range_type}
-**Deviation from target:** {rca_current_val - (rca_min + rca_max) / 2:.2f}
-
-Please provide a concise root cause analysis with:
-1. Most likely root cause (1-2 sentences)
-2. Immediate corrective actions (2-3 bullet points)
-3. Preventive measures (2-3 bullet points)"""
-                    
-                    try:
-                        if not Mistral:
-                            st.error("❌ Error: Mistral SDK not installed. Please install it with: pip install mistralai")
-                        else:
+                api_key = os.getenv("MISTRAL_API_KEY")
+                if not api_key:
+                    st.error("❌ Error: MISTRAL_API_KEY not found in environment.")
+                else:
+                    if Mistral:
+                        try:
                             client = Mistral(api_key=api_key)
                             response = client.chat.complete(
                                 model="mistral-small-latest",
-                                messages=[
-                                    {"role": "user", "content": prompt}
-                                ]
+                                messages=[{"role": "user", "content": _build_rca_prompt(machine_code, rca_param_name, rca_current_val, rca_min, rca_max, out_of_range_type)}]
                             )
-                            analysis_text = response.choices[0].message.content
-                            st.markdown(analysis_text)
-                    except Exception as e:
-                        st.error(f"❌ Mistral API Error: {str(e)}")
+                            st.markdown(response.choices[0].message.content)
+                        except Exception as e:
+                            st.error(f"❌ Mistral API Error: {str(e)}")
+                    else:
+                        # Fallback: use HTTP-based call_mistral_ai
+                        analysis_text = analyze_parameter_anomaly(
+                            machine_code, rca_param_name, rca_current_val, rca_min, rca_max, "OUT OF RANGE"
+                        )
+                        st.markdown(analysis_text)
 
             st.markdown(f"**Range:** [{rca_min:.1f}, {rca_max:.1f}]")
             st.markdown(f"**Deviation:** {rca_current_val - (rca_min + rca_max) / 2:.2f} from midpoint")
 
             if st.button("⬅️ Back to Dashboard", key="rca_back_button", use_container_width=True):
                 st.session_state.pop("fullscreen_rca_param", None)
+                st.session_state.pop("fullscreen_data", None)
 
             st.stop()
         
-        # Final safety stop to prevent main content from rendering during fullscreen views
-        st.stop()
+        # Auto-refresh for traceability mode (only reached when fp_to_show, not RCA)
+        if fp_to_show:
+            time.sleep(1)
+            st.rerun()
+        
+        st.stop()  # Safety: no matching view mode
+    
+    st.stop()  # Safety: no config selected
 
+
+
+# ── GUARD: If fullscreen mode was active, stop before any main content ──
+if show_fullscreen:
+    st.stop()
 
 if "execution_started" not in st.session_state:
     st.session_state.execution_started = False
@@ -2304,13 +2312,6 @@ else:
                 
             st.markdown("---")
             
-            api_key = os.getenv("MISTRAL_API_KEY")
-            if not api_key:
-                st.error("Error: MISTRAL_API_KEY not found in environment.")
-                if st.button("Close Modal"):
-                    st.session_state.pop("show_mistral_analysis", None)
-                return
-                
             with st.spinner("🧠 Generating insights from Mistral AI..."):
                 prompt = f"You are an expert industrial machine maintenance AI.\nThe machine '{mach_code}' has a dropping quality prediction probability of {probability}%.\nThe following parameters are currently out of bounds:\n"
                 for p in out_of_range_params:
@@ -2318,20 +2319,26 @@ else:
                     
                 prompt += "\nProvide a brief root-cause analysis and actionable bullet-point tips to fix this to bring parameters back in range."
                 
-                try:
-                    if not Mistral:
-                        st.error("❌ Error: Mistral SDK not installed. Please install it with: pip install mistralai")
-                    else:
+                api_key = os.getenv("MISTRAL_API_KEY")
+                if not api_key:
+                    st.error("Error: MISTRAL_API_KEY not found in environment.")
+                elif Mistral:
+                    try:
                         client = Mistral(api_key=api_key)
                         response = client.chat.complete(
                             model="mistral-large-latest",
-                            messages=[
-                                {"role": "user", "content": prompt}
-                            ]
+                            messages=[{"role": "user", "content": prompt}]
                         )
                         st.markdown(response.choices[0].message.content)
-                except Exception as e:
-                    st.error(f"Mistral API Error: {str(e)}")
+                    except Exception as e:
+                        st.error(f"Mistral API Error: {str(e)}")
+                else:
+                    # Fallback: use HTTP-based call_mistral_ai
+                    analysis_text = call_mistral_ai(prompt)
+                    if analysis_text.startswith("❌") or analysis_text.startswith("⚠️"):
+                        st.error(analysis_text)
+                    else:
+                        st.markdown(analysis_text)
                 
             st.markdown("---")
             if st.button("Close Modal", type="primary", key="mistral_close_modal"):
@@ -2343,13 +2350,9 @@ else:
         with modal_container:
             run_mistral_analysis(out_of_range_list, mc, ok_pct)
 
-    # Add auto-refresh every second for real-time updates (but NOT when viewing traceability)
-    fp_to_show = st.session_state.get("fullscreen_param")
-    rca_to_show = st.session_state.get("fullscreen_rca_param")
-    
-    if not (fp_to_show or rca_to_show):
-        time.sleep(1)
-        st.rerun()
+    # Auto-refresh every second for real-time updates
+    time.sleep(1)
+    st.rerun()
     
     st.markdown('<p class="cofi-section-title">📈 Session summary</p>', unsafe_allow_html=True)
     c1, c2, c3, c4 = st.columns(4)
