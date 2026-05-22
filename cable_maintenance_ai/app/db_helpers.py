@@ -493,6 +493,7 @@ def initialize_machine_configuration_table():
                     [MachineCode] VARCHAR(100) NOT NULL,
                     [MonitoringParameters] NVARCHAR(MAX) NOT NULL,
                     [RecipeParameters] NVARCHAR(MAX) NOT NULL,
+                    [ConfigurationType] VARCHAR(20) DEFAULT 'realtime',
                     [Description] TEXT,
                     [IsActive] BIT DEFAULT 1,
                     [CreatedAt] DATETIME DEFAULT GETDATE(),
@@ -503,13 +504,28 @@ def initialize_machine_configuration_table():
                 )
             """))
             c.commit()
+
+            # Step 3: Add ConfigurationType column if missing (migration)
+            try:
+                c.execute(text("""
+                    IF NOT EXISTS (
+                        SELECT * FROM sys.columns 
+                        WHERE object_id = OBJECT_ID('[model_schema].[machine_configuration]')
+                        AND name = 'ConfigurationType'
+                    )
+                    ALTER TABLE [model_schema].[machine_configuration]
+                    ADD [ConfigurationType] VARCHAR(20) DEFAULT 'realtime'
+                """))
+                c.commit()
+            except Exception:
+                pass
     except Exception as e:
         pass  # Table likely already exists
 
 
 @st.cache_data(ttl=300)
-def load_machine_configurations(machine_code: str | None = None) -> pd.DataFrame:
-    """Load all machine configurations, optionally filtered by machine."""
+def load_machine_configurations(machine_code: str | None = None, config_type: str | None = None) -> pd.DataFrame:
+    """Load all machine configurations, optionally filtered by machine and/or config type."""
     try:
         initialize_machine_configuration_table()
         
@@ -520,6 +536,7 @@ def load_machine_configurations(machine_code: str | None = None) -> pd.DataFrame
                 MachineCode,
                 MonitoringParameters,
                 RecipeParameters,
+                ConfigurationType,
                 Description,
                 IsActive,
                 CreatedAt,
@@ -527,13 +544,23 @@ def load_machine_configurations(machine_code: str | None = None) -> pd.DataFrame
             FROM [model_schema].[machine_configuration]
         """
         
+        conditions = []
+        params = {}
+        
         if machine_code:
-            query += " WHERE MachineCode = :m"
+            conditions.append("MachineCode = :m")
+            params["m"] = machine_code
+        
+        if config_type:
+            conditions.append("ConfigurationType = :ct")
+            params["ct"] = config_type
+        
+        if conditions:
+            query += " WHERE " + " AND ".join(conditions)
         
         query += " ORDER BY ConfigurationName"
         
         with get_engine().connect() as c:
-            params = {"m": machine_code} if machine_code else {}
             df = pd.read_sql(text(query), c, params=params)
         
         # Parse JSON columns
@@ -553,7 +580,7 @@ def load_machine_configurations(machine_code: str | None = None) -> pd.DataFrame
 
 def add_machine_configuration(config_name: str, machine_code: str, 
                              monitoring_params: list, recipe_params: list, 
-                             description: str = "") -> bool:
+                             description: str = "", config_type: str = "realtime") -> bool:
     """Add a new machine configuration."""
     try:
         import json
@@ -563,13 +590,14 @@ def add_machine_configuration(config_name: str, machine_code: str,
         with get_engine().connect() as c:
             c.execute(text("""
                 INSERT INTO [model_schema].[machine_configuration]
-                (ConfigurationName, MachineCode, MonitoringParameters, RecipeParameters, Description, IsActive)
-                VALUES (:name, :machine, :monitoring, :recipe, :desc, 1)
+                (ConfigurationName, MachineCode, MonitoringParameters, RecipeParameters, ConfigurationType, Description, IsActive)
+                VALUES (:name, :machine, :monitoring, :recipe, :ctype, :desc, 1)
             """), {
                 "name": config_name,
                 "machine": machine_code,
                 "monitoring": json.dumps(monitoring_params),
                 "recipe": json.dumps(recipe_params),
+                "ctype": config_type,
                 "desc": description
             })
             c.commit()
@@ -584,7 +612,8 @@ def add_machine_configuration(config_name: str, machine_code: str,
 
 def update_machine_configuration(config_id: int, config_name: str, machine_code: str,
                                 monitoring_params: list, recipe_params: list,
-                                description: str = "", is_active: bool = True) -> bool:
+                                description: str = "", config_type: str = "realtime",
+                                is_active: bool = True) -> bool:
     """Update an existing machine configuration."""
     try:
         import json
@@ -598,6 +627,7 @@ def update_machine_configuration(config_id: int, config_name: str, machine_code:
                     MachineCode = :machine,
                     MonitoringParameters = :monitoring,
                     RecipeParameters = :recipe,
+                    ConfigurationType = :ctype,
                     Description = :desc,
                     IsActive = :active
                 WHERE ConfigurationId = :id
@@ -607,6 +637,7 @@ def update_machine_configuration(config_id: int, config_name: str, machine_code:
                 "machine": machine_code,
                 "monitoring": json.dumps(monitoring_params),
                 "recipe": json.dumps(recipe_params),
+                "ctype": config_type,
                 "desc": description,
                 "active": 1 if is_active else 0
             })
@@ -2159,8 +2190,10 @@ def get_last_10_runs_for_machine_with_recipe(machine_code: str, opcnodeids: list
                 pr.[StartTs],
                 pr.[EndTs],
                 pr.[Status],
-                pr.[ScopeKey] AS RecipeIdentifier
+                pr.[ScopeKey] AS RecipeIdentifier,
+                COALESCE(pq.[IsOk], 0) AS IsOk
             FROM [dbo].[productionrun] pr
+            LEFT JOIN [dbo].[ProductionRunQuality] pq ON pr.[RunId] = pq.[RunId]
             WHERE pr.[MachineCode] = :machine
               AND pr.[StartTs] IS NOT NULL
               AND pr.[EndTs] IS NOT NULL
@@ -2191,19 +2224,21 @@ def get_runs_in_time_window(machine_code: str, start_ts, end_ts) -> pd.DataFrame
     try:
         query = """
             SELECT TOP 50
-                [RunId],
-                [MachineCode],
-                [StartTs],
-                [EndTs],
-                [Status],
-                [ScopeKey] AS RecipeIdentifier
-            FROM [dbo].[productionrun]
-            WHERE [MachineCode] = :machine
-              AND [StartTs] IS NOT NULL
-              AND [EndTs] IS NOT NULL
-              AND [StartTs] <= :end_ts
-              AND [EndTs] >= :start_ts
-            ORDER BY [StartTs] DESC
+                pr.[RunId],
+                pr.[MachineCode],
+                pr.[StartTs],
+                pr.[EndTs],
+                pr.[Status],
+                pr.[ScopeKey] AS RecipeIdentifier,
+                COALESCE(pq.[IsOk], 0) AS IsOk
+            FROM [dbo].[productionrun] pr
+            LEFT JOIN [dbo].[ProductionRunQuality] pq ON pr.[RunId] = pq.[RunId]
+            WHERE pr.[MachineCode] = :machine
+              AND pr.[StartTs] IS NOT NULL
+              AND pr.[EndTs] IS NOT NULL
+              AND pr.[StartTs] <= :end_ts
+              AND pr.[EndTs] >= :start_ts
+            ORDER BY pr.[StartTs] DESC
         """
 
         with get_engine().connect() as c:

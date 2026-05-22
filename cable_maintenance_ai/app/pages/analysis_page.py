@@ -49,6 +49,8 @@ from auth_helpers import ensure_page_authentication, render_nav_bar  # noqa: E40
 from db_helpers import (
     load_all_machines,
     load_all_parameters_for_machine,
+    load_machine_configurations,
+    get_machine_configuration_by_id,
     get_last_10_runs_for_machine_with_recipe,
     filter_runs_by_available_data,
     get_engine,
@@ -255,41 +257,65 @@ if 'analysis_recipe_params_selected' not in st.session_state:
 if 'analysis_machine_options' not in st.session_state:
     st.session_state.analysis_machine_options = []
 
-# ── Step 1: Select Machine ───────────────────────────────────────────────────
+# ── Step 1: Select Analysis Configuration ─────────────────────────────────────
 st.markdown("---")
-st.markdown('<p class="cofi-section-title">Step 1: Select Machine</p>', unsafe_allow_html=True)
+st.markdown('<p class="cofi-section-title">Step 1: Select Analysis Configuration</p>', unsafe_allow_html=True)
+st.caption("Choose a saved analysis configuration to pre-fill machine and parameters.")
 
-machines = load_all_machines()
-if machines:
-    st.session_state.analysis_machine_options = machines
-else:
-    machines = st.session_state.get("analysis_machine_options", [])
+analysis_configs = load_machine_configurations(config_type="analysis")
 
-if not machines:
-    st.error("No machines found in database.")
+if analysis_configs.empty:
+    st.warning("⚠️ No analysis configurations found. Please create one in the Configuration page first.")
+    st.info("Go to Configuration → Add Configuration → choose type 'analysis'.")
     st.stop()
 
-selected_machine = st.selectbox(
-    "Select a machine to analyze",
-    options=machines,
-    key="analysis_machine_selector",
-    label_visibility="collapsed",
+config_display = {}
+for _, cfg in analysis_configs.iterrows():
+    cid = cfg["ConfigurationId"]
+    machine = cfg["MachineCode"]
+    name = cfg["ConfigurationName"]
+    monitoring_count = len(cfg["MonitoringParameters"])
+    recipe_count = len(cfg["RecipeParameters"])
+    label = f"{name} | {machine} ({monitoring_count} params, {recipe_count} recipe)"
+    config_display[cid] = {"label": label, "row": cfg}
+
+selected_config_id = st.selectbox(
+    "Select an analysis configuration",
+    options=list(config_display.keys()),
+    format_func=lambda x: config_display[x]["label"],
+    key="analysis_config_selector",
 )
 
-# Update session state when machine changes
-if selected_machine != st.session_state.analysis_machine_selected:
-    st.session_state.analysis_machine_selected = selected_machine
-    st.session_state.analysis_step = 1
-    st.session_state.analysis_recipe_params_selected = None
-    # Clear downstream session state
-    if "analysis_runs" in st.session_state:
-        del st.session_state["analysis_runs"]
-    if "analysis_sample_runs" in st.session_state:
-        del st.session_state["analysis_sample_runs"]
-    if "analysis_sample_run_ids" in st.session_state:
-        del st.session_state["analysis_sample_run_ids"]
+# When config changes, update session state
+if st.session_state.get("analysis_config_id") != selected_config_id:
+    st.session_state["analysis_config_id"] = selected_config_id
+    cfg_row = config_display[selected_config_id]["row"]
+    st.session_state.analysis_machine_selected = cfg_row["MachineCode"]
+    st.session_state.analysis_monitoring_params_selected = cfg_row["MonitoringParameters"]
+    st.session_state.analysis_recipe_params_selected = cfg_row["RecipeParameters"]
+    # Clear downstream state
+    for key in ["analysis_runs", "analysis_sample_runs", "analysis_sample_run_ids"]:
+        st.session_state.pop(key, None)
     if "analysis_run_sequence_selector" in st.session_state:
         del st.session_state["analysis_run_sequence_selector"]
+
+# Use values from session state
+selected_machine = st.session_state.analysis_machine_selected
+selected_monitoring_params = st.session_state.analysis_monitoring_params_selected
+selected_recipe_params = st.session_state.analysis_recipe_params_selected
+
+# Show config summary
+cfg_row = config_display[selected_config_id]["row"]
+st.info(
+    f"**Machine:** {cfg_row['MachineCode']} | "
+    f"**Monitoring Params:** {len(selected_monitoring_params)} | "
+    f"**Recipe Params:** {len(selected_recipe_params)}"
+)
+
+with st.expander("📋 Monitoring Parameters"):
+    for p in selected_monitoring_params:
+        is_recipe = "🔷 Recipe" if p in selected_recipe_params else "📊 Monitor"
+        st.write(f"  • {p.replace('_ACT', '').replace('_', ' ')} - {is_recipe}")
 
 # ── Previous Datasheet Runs ──────────────────────────────────────────────────
 st.markdown("---")
@@ -351,7 +377,6 @@ if not previous_runs.empty:
                 datasheet_df = load_datasheet_by_run_id(selected_machine, selected_run_id)
                 
                 if not datasheet_df.empty:
-                    # Select columns to display
                     display_cols = [col for col in [
                         'OpcNodeId',
                         'MinValue',
@@ -364,7 +389,6 @@ if not previous_runs.empty:
                         'QualityNotOkCount'
                     ] if col in datasheet_df.columns]
                     
-                    # Format numeric columns
                     display_df = datasheet_df[display_cols].copy()
                     for col in ['MinValue', 'OptimalValue', 'MaxValue', 'MeanValue', 'StdDev']:
                         if col in display_df.columns:
@@ -380,58 +404,6 @@ if not previous_runs.empty:
                     st.warning("No datasheet parameters found for this run.")
 else:
     st.info(f"No previous datasheet runs found for {selected_machine}. Generate your first datasheet to get started!")
-
-# ── Step 2: Select Parameters to Analyse ────────────────────────────────────
-st.markdown("---")
-st.markdown('<p class="cofi-section-title">Step 2: Select Parameters to Analyse</p>', unsafe_allow_html=True)
-st.caption("Pick the parameters to analyze and designate which are recipe parameters.")
-
-all_parameters = load_all_parameters_for_machine(selected_machine)
-if not all_parameters:
-    st.warning(f"No parameters found for machine {selected_machine}.")
-    st.stop()
-
-col1, col2 = st.columns(2)
-
-with col1:
-    st.markdown("**Parameters to Analyse**")
-    selected_monitoring_params = st.multiselect(
-        "Select parameters to analyze:",
-        options=all_parameters,
-        format_func=lambda x: x.replace('_ACT', '').replace('_', ' '),
-        key="analysis_monitoring_multiselect",
-        help="These parameters will be collected and analyzed"
-    )
-
-with col2:
-    st.markdown("**Recipe Parameters**  \n*(subset of monitoring params)*")
-    selected_recipe_params = st.multiselect(
-        "Select which parameters define the recipe:",
-        options=selected_monitoring_params if selected_monitoring_params else all_parameters,
-        format_func=lambda x: x.replace('_ACT', '').replace('_', ' '),
-        key="analysis_recipe_multiselect",
-        help="Parameters that define the recipe (used as recipe key)"
-    )
-
-if not selected_monitoring_params:
-    st.info("Select at least one parameter to analyse to continue.")
-    st.stop()
-
-# Validate recipe params are a subset of monitoring params
-invalid_recipes = [p for p in selected_recipe_params if p not in selected_monitoring_params]
-if invalid_recipes:
-    st.error("Recipe parameters must be a subset of monitoring parameters.")
-    st.stop()
-
-# Update session state when params change
-if (selected_monitoring_params != st.session_state.analysis_monitoring_params_selected or
-    selected_recipe_params != st.session_state.analysis_recipe_params_selected):
-    st.session_state.analysis_monitoring_params_selected = selected_monitoring_params
-    st.session_state.analysis_recipe_params_selected = selected_recipe_params
-    st.session_state.analysis_step = 2
-    # Clear downstream session state
-    for key in ["analysis_runs", "analysis_sample_runs", "analysis_sample_run_ids", "analysis_run_sequence_selector"]:
-        st.session_state.pop(key, None)
 
 # ── Analysis Mode Selector ──────────────────────────────────────────
 st.markdown("---")
@@ -656,9 +628,10 @@ runs_df = st.session_state["analysis_runs"]
 run_display = runs_df.copy()
 run_display["StartTs"] = run_display["StartTs"].dt.strftime("%Y-%m-%d %H:%M")
 run_display["EndTs"] = run_display["EndTs"].dt.strftime("%Y-%m-%d %H:%M")
+run_display["IsOk"] = run_display["IsOk"].apply(lambda x: "✅ Yes" if x == 1 else "❌ No")
 
 st.dataframe(
-    run_display[["RunId", "StartTs", "EndTs", "RecipeIdentifier", "Status"]],
+    run_display[["RunId", "StartTs", "EndTs", "RecipeIdentifier", "Status", "IsOk"]],
     use_container_width=True,
     hide_index=True
 )
@@ -677,24 +650,33 @@ if recent_runs.empty:
     st.error("No data source loaded. Please reload in Step 3.")
     st.stop()
 
-recent_run_ids = recent_runs["RunId"].tolist()
+# Filter to only show OK runs
+ok_runs = recent_runs[recent_runs["IsOk"] == 1].copy()
+
+if ok_runs.empty:
+    st.warning("❌ No OK-quality runs available. Only runs with IsOk = 1 can be used for sample collection.")
+    st.stop()
+
+st.success(f"✅ {len(ok_runs)}/{len(recent_runs)} runs have IsOk = 1 and are available for selection")
+
+ok_run_ids = ok_runs["RunId"].tolist()
 
 select_all_runs = st.checkbox("Select All Runs", value=True, key="analysis_select_all")
 
 if select_all_runs:
-    selected_run_ids = recent_run_ids
-    st.caption(f"✅ All **{len(selected_run_ids)}** runs will be used for sampling")
+    selected_run_ids = ok_run_ids
+    st.caption(f"✅ All **{len(selected_run_ids)}** OK runs will be used for sampling")
 else:
-    default_run_ids = [run_id for run_id in st.session_state.get("analysis_sample_run_ids", recent_run_ids[:3]) if run_id in recent_run_ids]
+    default_run_ids = [run_id for run_id in st.session_state.get("analysis_sample_run_ids", ok_run_ids[:3]) if run_id in ok_run_ids]
     selected_run_ids = st.multiselect(
-        "Choose one or more runs for sample collection",
-        options=recent_run_ids,
+        "Choose one or more OK runs for sample collection",
+        options=ok_run_ids,
         default=default_run_ids,
         key="analysis_sample_run_ids",
-        help="Select the runs that should contribute samples for the datasheet.",
+        help="Select the runs that should contribute samples for the datasheet (only OK runs shown).",
     )
 
-selected_runs = recent_runs[recent_runs["RunId"].isin(selected_run_ids)].copy()
+selected_runs = ok_runs[ok_runs["RunId"].isin(selected_run_ids)].copy()
 
 if selected_runs.empty:
     if "analysis_sample_runs" in st.session_state:
@@ -710,9 +692,10 @@ if "analysis_sample_runs" not in st.session_state:
 selected_runs = st.session_state["analysis_sample_runs"]
 run_count = len(selected_runs)
 
-selected_runs_display = selected_runs[["RunId", "StartTs", "EndTs", "RecipeIdentifier"]].copy()
+selected_runs_display = selected_runs[["RunId", "StartTs", "EndTs", "RecipeIdentifier", "IsOk"]].copy()
 selected_runs_display["StartTs"] = selected_runs_display["StartTs"].dt.strftime("%Y-%m-%d %H:%M")
 selected_runs_display["EndTs"] = selected_runs_display["EndTs"].dt.strftime("%Y-%m-%d %H:%M")
+selected_runs_display["IsOk"] = selected_runs_display["IsOk"].apply(lambda x: "✅ Yes" if x == 1 else "❌ No")
 st.dataframe(selected_runs_display, use_container_width=True, hide_index=True, height=min(150, 36 * run_count + 50))
 
 # ── Step 5: Collect Samples & Generate Datasheet ─────────────────────────────

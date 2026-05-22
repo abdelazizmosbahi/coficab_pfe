@@ -324,6 +324,15 @@ with tab1:
             status_icon = "🔴"
         return f"{status_icon} {machine}"
     
+    config_type = st.radio(
+        "Configuration Type",
+        options=["realtime", "analysis"],
+        index=0,
+        horizontal=True,
+        help="Realtime: for live monitoring. Analysis: for datasheet generation.",
+        key="add_config_type"
+    )
+    
     col1, col2 = st.columns([1, 1])
     
     with col1:
@@ -411,7 +420,8 @@ with tab1:
                                 machine_code=selected_machine,
                                 monitoring_params=monitoring_params,
                                 recipe_params=recipe_params,
-                                description=description
+                                description=description,
+                                config_type=config_type
                             ):
                                 st.balloons()
                                 st.session_state.refresh_configs = True
@@ -461,6 +471,7 @@ with tab2:
                     st.markdown("**Configuration Details**")
                     st.write(f"**ID:** {config['ConfigurationId']}")
                     st.write(f"**Machine:** {config['MachineCode']}")
+                    st.write(f"**Type:** {config.get('ConfigurationType', 'realtime')}")
                     st.write(f"**Created:** {config['CreatedAt']}")
                     st.write(f"**Updated:** {config['UpdatedAt']}")
                 
@@ -496,6 +507,15 @@ if st.session_state.editing_config_id is not None:
     config_data = get_machine_configuration_by_id(st.session_state.editing_config_id)
 
     if config_data:
+        edit_config_type = st.radio(
+            "Configuration Type",
+            options=["realtime", "analysis"],
+            index=0 if config_data.get('ConfigurationType', 'realtime') == 'realtime' else 1,
+            horizontal=True,
+            help="Realtime: for live monitoring. Analysis: for datasheet generation.",
+            key="edit_config_type"
+        )
+
         col1, col2 = st.columns([1, 1])
 
         with col1:
@@ -584,6 +604,7 @@ if st.session_state.editing_config_id is not None:
                                 monitoring_params=edit_monitoring,
                                 recipe_params=edit_recipe,
                                 description=edit_description,
+                                config_type=edit_config_type,
                                 is_active=edit_is_active
                             ):
                                 st.session_state["config_updated_toast"] = True
@@ -677,7 +698,7 @@ st.subheader("📊 Configuration Summary")
 
 all_configs = load_machine_configurations()
 
-col1, col2, col3 = st.columns(3)
+col1, col2, col3, col4, col5 = st.columns(5)
 
 with col1:
     st.metric("Total Configurations", len(all_configs))
@@ -689,3 +710,11 @@ with col2:
 with col3:
     unique_machines = all_configs['MachineCode'].nunique() if not all_configs.empty else 0
     st.metric("Machines Configured", unique_machines)
+
+with col4:
+    realtime_count = len(all_configs[all_configs['ConfigurationType'] == 'realtime']) if not all_configs.empty else 0
+    st.metric("Realtime Configs", realtime_count)
+
+with col5:
+    analysis_count = len(all_configs[all_configs['ConfigurationType'] == 'analysis']) if not all_configs.empty else 0
+    st.metric("Analysis Configs", analysis_count)
