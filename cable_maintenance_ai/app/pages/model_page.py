@@ -45,6 +45,7 @@ from db_helpers import (
     get_engine,
     initialize_parameter_reference_datasheet_table,
     save_parameter_datasheet,
+    get_datasheet_runs_for_machine,
 )
 
 try:
@@ -1669,7 +1670,8 @@ if show_fullscreen:
         config_row = configs_df[configs_df["ConfigurationId"] == selected_config_id].iloc[0]
         machine_code = config_row["MachineCode"]
         config_id = config_row["ConfigurationId"]
-        analysis_results = load_latest_analysis_results(machine_code=machine_code, config_id=config_id)
+        # Load latest analysis for the machine (independent of configuration)
+        analysis_results = load_latest_analysis_results(machine_code=machine_code)
         reference_df = _cached_load_reference_df(machine_code, config_id, analysis_results)
         
         # ════════════════════════════════════════════════════════════════════════════
@@ -1931,9 +1933,20 @@ is_machine_active = machine_status_linespeed.get("active", False)
 machine_status_text = machine_status_linespeed.get("status", "🟡 Standby")
 
 analysis_results = {}
+latest_analysis_timestamp = None
 monitoring_ready = False
-if config_id is not None and machine_code:
-    analysis_results = load_latest_analysis_results(machine_code=machine_code, config_id=config_id)
+
+if machine_code:
+    # Get latest datasheet run for the machine to show last analysis time
+    datasheet_runs = get_datasheet_runs_for_machine(machine_code)
+    if not datasheet_runs.empty:
+        latest_run = datasheet_runs.iloc[0]  # Most recent first
+        latest_analysis_timestamp = latest_run['ExecutionTimestamp']
+        print(f"📊 Latest datasheet run for {machine_code}: {latest_analysis_timestamp}")
+    
+    # Load latest analysis for the machine (independent of configuration)
+    # Analysis is machine-specific, not configuration-specific
+    analysis_results = load_latest_analysis_results(machine_code=machine_code)
     monitoring_ready = bool(analysis_results)
 
 # ── Main: Show parameters immediately if config is selected ─────
@@ -2010,13 +2023,17 @@ else:
     working_set = load_working_machines()
     machine_status_lbl = "🟢 Working" if mc in working_set else "⚫ Not Working"
 
-    created_at = analysis_results.get("created_at")
-    if hasattr(created_at, "strftime"):
-        analysis_ts_str = created_at.strftime("%Y-%m-%d %H:%M:%S")
-        elapsed_anchor = created_at.replace(tzinfo=None) if hasattr(created_at, "replace") else created_at
+    # Use latest datasheet run timestamp if available, otherwise use analysis_results timestamp
+    if latest_analysis_timestamp is not None:
+        analysis_ts_str = latest_analysis_timestamp.strftime("%Y-%m-%d %H:%M:%S") if hasattr(latest_analysis_timestamp, "strftime") else str(latest_analysis_timestamp)
     else:
-        analysis_ts_str = str(created_at) if created_at else "N/A"
-        elapsed_anchor = st.session_state.completion_time or datetime.now()
+        created_at = analysis_results.get("created_at")
+        if hasattr(created_at, "strftime"):
+            analysis_ts_str = created_at.strftime("%Y-%m-%d %H:%M:%S")
+        else:
+            analysis_ts_str = str(created_at) if created_at else "N/A"
+    
+    elapsed_anchor = None  # Not used anymore, but keep for compatibility
 
     # Store static data in session state to avoid recomputing on each fragment refresh
     if "_model_static_data" not in st.session_state or st.session_state.get("_model_cfg_id") != cid:
@@ -2032,12 +2049,7 @@ else:
         analysis_ts_str = static_data["analysis_ts_str"]
         elapsed_anchor = static_data["elapsed_anchor"]
 
-    # ── Get fresh on_pct and prob_color for metrics display ──
-    # These will be updated by render_monitoring_values() fragment
-    # But we need initial values for the metrics display
-    ok_pct = 0
-    prob_color = "#5b6b7a"
-    prob_status = "INITIALIZING"
+
 
     # ── Display configuration details metrics ──
     with st.expander(f"📡 {cr['ConfigurationName'][:40]} · {mc}", expanded=True):
@@ -2054,7 +2066,7 @@ else:
 
         st.markdown(COFI_METRIC_CARD_STYLE, unsafe_allow_html=True)
 
-        metric_cols = st.columns(4, gap="small")
+        metric_cols = st.columns(3, gap="small")
         with metric_cols[0]:
             st.markdown(
                 f"""
@@ -2083,32 +2095,12 @@ else:
             st.markdown(
                 f"""
             <div class="cofi-metric-card">
-                <div class="cofi-metric-label">⏱️ Since analysis</div>
-                <div class="cofi-metric-value">{format_elapsed(elapsed_anchor)}</div>
+                <div class="cofi-metric-label">⏱️ Last analysis</div>
+                <div class="cofi-metric-value">{analysis_ts_str}</div>
             </div>
             """,
                 unsafe_allow_html=True,
             )
-        with metric_cols[3]:
-            st.markdown(
-                f"""
-            <div class="cofi-metric-card">
-                <div class="cofi-metric-label">🧠 Prediction Probability</div>
-                <div style="display: flex; align-items: center; justify-content: center; margin-bottom: 8px;">
-                    <div style="width: 55px; height: 55px; border-radius: 50%; background: conic-gradient({prob_color} 0deg {ok_pct * 3.6}deg, #e4e8ec {ok_pct * 3.6}deg 360deg); display: flex; align-items: center; justify-content: center;">
-                        <div style="width: 50px; height: 50px; border-radius: 50%; background: #ffffff; display: flex; align-items: center; justify-content: center;">
-                            <span style="font-size: 16px; font-weight: 700; color: {prob_color};">{ok_pct}%</span>
-                        </div>
-                    </div>
-                </div>
-                <div style="font-size: 11px; color: {prob_color}; font-weight: 600;">{prob_status}</div>
-            </div>
-            """,
-                unsafe_allow_html=True,
-            )
-            if is_machine_active and ok_pct < 50:
-                if st.button("🤖 Analyze Root Cause", use_container_width=True):
-                    st.session_state["show_mistral_analysis"] = True
 
         if machine_datasheet:
             st.markdown(
@@ -2178,27 +2170,7 @@ else:
                 else:
                     totalScore += 100.0 if val == mn else 0.0
 
-        if with_data > 0:
-            ok_pct = int(round(totalScore / with_data))
-            variance = float(np.random.uniform(-1.5, 1.5))
-            ok_pct = max(0, min(100, int(ok_pct + variance)))
-        else:
-            ok_pct = 0
-
-        if ok_pct >= 80:
-            prob_color, prob_status = "#1d8f5a", "EXCELLENT"
-        elif ok_pct >= 60:
-            prob_color, prob_status = "#f57c00", "GOOD"
-        elif with_data == 0:
-            prob_color, prob_status = "#5b6b7a", "NO DATA"
-        else:
-            prob_color, prob_status = "#c3432f", "NEEDS ATTENTION"
-
-        # If machine is in standby or inactive, override status
-        if not machine_active_now:
-            ok_pct = 0
-            prob_color = "#f57c00"
-            prob_status = "STANDBY" if "Standby" in machine_status_now else "INACTIVE"
+        # Probability calculations removed - prediction probability card removed from UI
 
         # ────── RENDER PARAMETER CARDS INSIDE FRAGMENT ──────
         # This ensures cards update every second with fresh data
@@ -2218,9 +2190,6 @@ else:
         # Return data for use in expander
         return {
             "merged_readings": merged_readings,
-            "ok_pct": ok_pct,
-            "prob_color": prob_color,
-            "prob_status": prob_status,
             "machine_active": machine_active_now,
             "machine_status": machine_status_now,
         }
@@ -2437,71 +2406,10 @@ else:
     
     # Call the card rendering fragment
     render_parameter_cards()
-    ok_pct = monitoring_data["ok_pct"]
-    prob_color = monitoring_data["prob_color"]
-    prob_status = monitoring_data["prob_status"]
-    
-    # Use real-time machine status from fragment (not the initial check)
-    if not machine_active_now:
-        ok_pct = 0
-        prob_color = "#f57c00"
-        prob_status = "STANDBY" if "Standby" in str(machine_status_now) else "INACTIVE"
 
-    def run_mistral_analysis(out_of_range_params, mach_code, probability):
-        """Modal for Mistral Root Cause Analysis - displayed via session state."""
-        with st.container():
-            st.markdown("### 🤖 Mistral Root Cause Analysis")
-            st.warning(f"Prediction Probability dropped to {probability}% due to out of spec parameters.")
-            
-            if not out_of_range_params:
-                st.info("No parameters are currently labeled out of range. The probability may be artificially low due to variance.")
-                if st.button("Close Modal"):
-                    st.session_state.pop("show_mistral_analysis", None)
-                return
-                
-            st.markdown("**Out of Range Summary:**")
-            for p in out_of_range_params:
-                st.markdown(f"- **{p['name']}**: `{p['val']:.2f}` (Range: [{p['min']:.1f}, {p['max']:.1f}])")
-                
-            st.markdown("---")
-            
-            with st.spinner("🧠 Generating insights from Mistral AI..."):
-                prompt = f"You are an expert industrial machine maintenance AI.\nThe machine '{mach_code}' has a dropping quality prediction probability of {probability}%.\nThe following parameters are currently out of bounds:\n"
-                for p in out_of_range_params:
-                    prompt += f"- {p['name']}: {p['val']:.2f} (Expected Range: {p['min']:.1f} to {p['max']:.1f})\n"
-                    
-                prompt += "\nProvide a brief root-cause analysis and actionable bullet-point tips to fix this to bring parameters back in range."
-                
-                api_key = os.getenv("MISTRAL_API_KEY")
-                if not api_key:
-                    st.error("Error: MISTRAL_API_KEY not found in environment.")
-                elif Mistral:
-                    try:
-                        client = Mistral(api_key=api_key)
-                        response = client.chat.complete(
-                            model="mistral-large-latest",
-                            messages=[{"role": "user", "content": prompt}]
-                        )
-                        st.markdown(response.choices[0].message.content)
-                    except Exception as e:
-                        st.error(f"Mistral API Error: {str(e)}")
-                else:
-                    # Fallback: use HTTP-based call_mistral_ai
-                    analysis_text = call_mistral_ai(prompt)
-                    if analysis_text.startswith("❌") or analysis_text.startswith("⚠️"):
-                        st.error(analysis_text)
-                    else:
-                        st.markdown(analysis_text)
-                
-            st.markdown("---")
-            if st.button("Close Modal", type="primary", key="mistral_close_modal"):
-                st.session_state.pop("show_mistral_analysis", None)
+    # Mistral Analysis function removed - prediction probability card removed from UI
 
-    if st.session_state.get("show_mistral_analysis"):
-        # Show modal container with border
-        modal_container = st.container(border=True)
-        with modal_container:
-            run_mistral_analysis(out_of_range_list, mc, ok_pct)
+    # Mistral analysis modal removed - prediction card feature removed
 
     # Auto-refresh every second for real-time updates
     time.sleep(1)

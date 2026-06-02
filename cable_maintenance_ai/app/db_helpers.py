@@ -1931,6 +1931,34 @@ def load_latest_analysis_results(machine_code: str = None, config_id: int = None
         print(f"📊 load_latest_analysis_results: Looking for table [{table_name}] for machine [{machine_code}]")
         
         with get_engine().connect() as c:
+            # First check if table exists
+            table_exists_query = f"""
+                SELECT COUNT(*) as table_count 
+                FROM INFORMATION_SCHEMA.TABLES 
+                WHERE TABLE_SCHEMA = 'model_schema' 
+                AND TABLE_NAME = '{table_name}'
+            """
+            table_exists_result = pd.read_sql(text(table_exists_query), c)
+            table_exists = table_exists_result['table_count'].iloc[0] > 0 if not table_exists_result.empty else False
+            
+            if not table_exists:
+                print(f"   ⚠️ Table [model_schema].[{table_name}] does not exist")
+                # List available analysis tables
+                list_tables_query = """
+                    SELECT TABLE_NAME 
+                    FROM INFORMATION_SCHEMA.TABLES 
+                    WHERE TABLE_SCHEMA = 'model_schema' 
+                    AND TABLE_NAME LIKE 'analysis_results_%'
+                """
+                available_tables = pd.read_sql(text(list_tables_query), c)
+                if not available_tables.empty:
+                    print(f"   Available analysis tables: {list(available_tables['TABLE_NAME'])}")
+                else:
+                    print(f"   ⚠️ No analysis_results tables found in model_schema")
+                return {}
+            
+            print(f"   ✓ Table exists")
+            
             # Get the latest RunSequence
             latest_run_query = f"""
                 SELECT MAX(RunSequence) as max_run FROM [model_schema].[{table_name}]
@@ -1942,7 +1970,12 @@ def load_latest_analysis_results(machine_code: str = None, config_id: int = None
             
             if max_run is None:
                 print(f"   ❌ No runs found in table")
-                return {}  # No analysis found
+                # Check how many rows the table has
+                count_query = f"SELECT COUNT(*) as row_count FROM [model_schema].[{table_name}]"
+                count_result = pd.read_sql(text(count_query), c)
+                row_count = count_result['row_count'].iloc[0] if not count_result.empty else 0
+                print(f"   Table has {row_count} total rows")
+                return {}
             
             # Load all parameters from the latest run
             results_query = f"""
@@ -1970,7 +2003,7 @@ def load_latest_analysis_results(machine_code: str = None, config_id: int = None
             print(f"   ✅ Loaded {len(results_df)} parameters from RunSequence #{max_run}")
         
         if results_df.empty:
-            print(f"   ❌ No data returned from query")
+            print(f"   ❌ No data returned from query for RunSequence {max_run}")
             return {}
         
         # Get metadata from first row
@@ -1978,6 +2011,8 @@ def load_latest_analysis_results(machine_code: str = None, config_id: int = None
         created_at = first_row['CreatedAt']
         configuration_id = first_row['ConfigurationId']
         configuration_name = first_row['ConfigurationName']
+        
+        print(f"   Analysis timestamp: {created_at}")
         
         # Build reference_datasheets structure like model_page expects
         parameters_list = []
