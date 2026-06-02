@@ -1975,49 +1975,7 @@ else:
         analysis_timestamp = analysis_results['created_at']
         run_seq = analysis_results.get('run_sequence', '?')
 
-    st.markdown("---")
-    
-    # ── Display datasheet from analysis results ─────
-    st.markdown('<p class="cofi-section-title">📋 Analysed Configuration Datasheet</p>', unsafe_allow_html=True)
-    
-    # Debug: Check what we have
-    debug_mode = st.query_params.get("debug", "false").lower() == "true"
-    
-    if not analysis_results:
-        st.warning("❌ No analysis results found for this machine.")
-        if debug_mode:
-            st.write(f"**DEBUG:** analysis_results is: {analysis_results}")
-            st.write(f"**DEBUG:** machine_code: {mc}")
-    elif datasheet_table.empty:
-        st.warning("❌ Analysis results found but datasheet is empty.")
-        if debug_mode:
-            st.write("**DEBUG INFO**")
-            st.write(f"analysis_results keys: {list(analysis_results.keys())}")
-            st.write(f"reference_df shape: {reference_df.shape}")
-            st.write(f"datasheet_table shape: {datasheet_table.shape}")
-            if 'results_export' in analysis_results:
-                ref_dsheet = analysis_results['results_export'].get('reference_datasheets', {})
-                st.write(f"reference_datasheets keys: {list(ref_dsheet.keys())}")
-                st.write(f"mc value: '{mc}'")
-                if mc in ref_dsheet:
-                    st.write(f"Parameters in {mc}: {ref_dsheet[mc].get('parameter_count', 0)}")
-    else:
-        # ✅ Display the analysis datasheet with metadata
-        if analysis_timestamp:
-            st.caption(f"📊 Reference ranges from Run #{run_seq} executed at {analysis_timestamp.strftime('%Y-%m-%d %H:%M:%S')}")
-        else:
-            st.caption("📊 Reference ranges from analysis for this configuration.")
-        
-        st.dataframe(datasheet_table, use_container_width=True, hide_index=True, height=min(600, max(150, 36 * len(datasheet_table))))
-        
-        with st.expander("📊 Download datasheet", expanded=False):
-            csv = datasheet_table.to_csv(index=False)
-            st.download_button(
-                label="Download CSV",
-                data=csv,
-                file_name=f"analysis_datasheet_{mc}_config{cid}.csv",
-                mime="text/csv",
-            )
+
 
     # ── Setup configuration details metrics ──
     working_set = load_working_machines()
@@ -2214,11 +2172,9 @@ else:
         display_params = list(dict.fromkeys(list(rp) + list(mp)))
         out_of_range_list = []
         
-        if not machine_active_now:
-            st.info(f"⏸️ **Machine in Standby** — {machine_status_now}. Parameter cards are hidden until the machine becomes active. The page auto-refreshes every second.")
-        elif not display_params:
+        if machine_active_now and not display_params:
             st.info("ℹ️ No monitoring parameters in this configuration.")
-        else:
+        elif machine_active_now:
             # ── RECIPE PARAMETERS (rp) - First row, simplified with navy background ──
             if rp:
                 st.markdown("**📋 Recipe Parameters:**")
