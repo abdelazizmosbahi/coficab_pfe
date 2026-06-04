@@ -9,7 +9,6 @@ import os
 import sys
 import time
 import json
-import base64
 from datetime import datetime
 from dotenv import load_dotenv
 import plotly.graph_objects as go
@@ -24,11 +23,10 @@ except ImportError:
         Mistral = None
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-ROOT_DIR = os.path.dirname(BASE_DIR)
 load_dotenv(os.path.join(BASE_DIR, ".env"))
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from auth_helpers import ensure_page_authentication, render_nav_bar  # noqa: E402
+from auth_helpers import COFICAB_LOGO_B64, ensure_page_authentication, render_nav_bar  # noqa: E402
 from db_helpers import (
     load_machine_configurations,
     load_working_machines,
@@ -1624,33 +1622,30 @@ apply_coficab_theme()
 
 render_nav_bar(current_page="model_page")
 
-logo_data_uri = ""
-logo_path = os.path.join(ROOT_DIR, "coficab_logo.png")
-if os.path.exists(logo_path):
-    with open(logo_path, "rb") as logo_file:
-        logo_b64 = base64.b64encode(logo_file.read()).decode("utf-8")
-        logo_data_uri = f"data:image/png;base64,{logo_b64}"
+# Navbar logo — same CSS background-image approach as app.py
+st.markdown(f"""
+<style>
+.cofi-nav__left {{
+    background-image: url('data:image/png;base64,{COFICAB_LOGO_B64}');
+    background-size: contain;
+    background-repeat: no-repeat;
+    background-position: center left;
+    min-width: 140px;
+    height: 36px;
+}}
+</style>
+""", unsafe_allow_html=True)
 
-hero_html = """
+hero_html = f"""
 <div class="cofi-hero">
     <div class="cofi-hero__text">
         <div class="cofi-eyebrow">MODEL ANALYSIS & LIVE MONITORING</div>
         <h1 class="cofi-hero-title">Configuration-Based Real-Time Monitoring</h1>
         <p>Run analysis on a saved configuration, then track live values against the reference datasheet.</p>
     </div>
+    <img class="cofi-hero__logo" src="data:image/png;base64,{COFICAB_LOGO_B64}" alt="Coficab logo" />
 </div>
 """
-if logo_data_uri:
-    hero_html = f"""
-    <div class="cofi-hero">
-        <div class="cofi-hero__text">
-            <div class="cofi-eyebrow">MODEL ANALYSIS & LIVE MONITORING</div>
-            <h1 class="cofi-hero-title">Configuration-Based Real-Time Monitoring</h1>
-            <p>Run analysis on a saved configuration, then track live values against the reference datasheet.</p>
-        </div>
-        <img class="cofi-hero__logo" src="{logo_data_uri}" alt="Coficab logo" />
-    </div>
-    """
 st.markdown(hero_html, unsafe_allow_html=True)
 
 # ════════════════════════════════════════════════════════════════════════════════
@@ -1929,6 +1924,8 @@ if st.session_state.selected_config is not None:
 machine_status_linespeed = get_machine_status_for(machine_code) if machine_code else {}
 is_machine_active = machine_status_linespeed.get("active", False)
 machine_status_text = machine_status_linespeed.get("status", "🟡 Standby")
+# Cache in session state so render_monitoring_values can reuse it instead of re-querying
+st.session_state._machine_status_linespeed = machine_status_linespeed
 
 analysis_results = {}
 latest_analysis_timestamp = None
@@ -1962,6 +1959,12 @@ else:
     
     # ── Load reference datasheet from latest analysis results (CACHED) ─────
     reference_df = _cached_load_reference_df(mc, cid, analysis_results)
+    
+    # Build dict lookup for O(1) parameter access instead of O(N) DataFrame scans
+    param_to_ref = {}
+    if not reference_df.empty:
+        for _, r in reference_df.iterrows():
+            param_to_ref[r["OpcNodeId"]] = r
     
     machine_datasheet = {}
     cfg_opc_ids = list(dict.fromkeys(list(mp) + list(rp)))
@@ -2072,8 +2075,10 @@ else:
     # Fragment function: only this part refreshes with auto-refresh (every 1 second)
     def render_monitoring_values():
         """Load and store monitoring values for display (called every auto-refresh cycle)."""
-        # Check machine status based on LineSpeed (real-time check)
-        machine_status_result = get_machine_status_for(mc) if mc else {}
+        # Use machine status from session state (set in main flow) to avoid duplicate query
+        machine_status_result = st.session_state.get("_machine_status_linespeed", {})
+        if not machine_status_result:
+            machine_status_result = get_machine_status_for(mc) if mc else {}
         machine_active_now = machine_status_result.get("active", False)
         machine_status_now = machine_status_result.get("status", "🔴 Inactive")
         latest_values = load_current_machine_values(mc, tag_params) if tag_params else {}
@@ -2111,11 +2116,11 @@ else:
             if val is None:
                 continue
             with_data += 1
-            row = reference_df[reference_df["OpcNodeId"] == param] if not reference_df.empty else pd.DataFrame()
-            if row.empty:
+            ref_series = param_to_ref.get(param)
+            if ref_series is None:
                 continue
-            mn = safe_float(row.iloc[0]["MinValue"])
-            mx = safe_float(row.iloc[0]["MaxValue"])
+            mn = safe_float(ref_series["MinValue"])
+            mx = safe_float(ref_series["MaxValue"])
             if mn is not None and mx is not None:
                 target = (mn + mx) / 2.0
                 spread = (mx - mn) / 2.0
@@ -2221,13 +2226,12 @@ else:
                 st.markdown("**📊 Monitoring Parameters:**")
                 cols = st.columns(4)
                 for idx, param in enumerate(monitoring_only):
-                    ref_row = reference_df[reference_df["OpcNodeId"] == param] if not reference_df.empty else pd.DataFrame()
-                    if not ref_row.empty:
-                        # Safely convert all values to float
-                        min_val = safe_float(ref_row.iloc[0]["MinValue"])
-                        max_val = safe_float(ref_row.iloc[0]["MaxValue"])
-                        mean_val = safe_float(ref_row.iloc[0]["MeanValue"]) if "MeanValue" in ref_row.columns else None
-                        param_name = ref_row.iloc[0].get("ParameterName") or param
+                    ref_series = param_to_ref.get(param)
+                    if ref_series is not None:
+                        min_val = safe_float(ref_series["MinValue"])
+                        max_val = safe_float(ref_series["MaxValue"])
+                        mean_val = safe_float(ref_series["MeanValue"]) if "MeanValue" in ref_series else None
+                        param_name = ref_series.get("ParameterName") or param
                     else:
                         min_val = max_val = mean_val = None
                         param_name = param.replace("_ACT", "").replace("_", " ")

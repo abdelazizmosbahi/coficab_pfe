@@ -329,7 +329,7 @@ def load_working_machines() -> list[str]:
         return []
 
 
-@st.cache_data(ttl=10)
+@st.cache_data(ttl=60)
 def load_all_machines() -> list[str]:
     """Return sorted list of all machines in MachineTagValue table."""
     try:
@@ -671,12 +671,11 @@ def delete_machine_configuration(config_id: int) -> bool:
         return False
 
 
+@st.cache_data(ttl=300)
 def get_machine_configuration_by_id(config_id: int) -> dict:
-    """Get a specific configuration by ID."""
+    """Get a specific configuration by ID (cached 5 min)."""
     try:
         import json
-        
-        initialize_machine_configuration_table()
         
         with get_engine().connect() as c:
             df = pd.read_sql(text("""
@@ -783,6 +782,7 @@ def check_machine_active_status(machine_code: str, active_window_seconds: int | 
         return False
 
 
+@st.cache_data(ttl=2)
 def get_machine_status_by_linespeed() -> dict:
     """
     Get machine status based on LineSpeed value and data freshness.
@@ -793,6 +793,9 @@ def get_machine_status_by_linespeed() -> dict:
     - Inactive (active=False): no linespeed data OR data is stale
     
     Freshness window: LINESPEED_FRESHNESS_SECONDS (currently 3 seconds)
+    
+    Uses CROSS APPLY with DISTINCT machine list — same index-seeking execution
+    as the original per-machine TOP 1 queries, but in a single round-trip.
     
     Returns:
         dict: {
@@ -806,21 +809,72 @@ def get_machine_status_by_linespeed() -> dict:
         }
     """
     try:
-        all_machines = load_all_machines()
-        status_dict = {}
         now = datetime.utcnow()
 
-        for machine in all_machines:
-            with get_engine().connect() as c:
-                df = pd.read_sql(text("""
-                    SELECT TOP 1 Value, SourceTimestamp
+        with get_engine().connect() as c:
+            df = pd.read_sql(text("""
+                SELECT m.MachineCode, ls.Value, ls.SourceTimestamp
+                FROM (
+                    SELECT DISTINCT MachineCode
                     FROM MachineTagValue
-                    WHERE MachineCode = :machine
-                      AND LOWER(OpcNodeId) LIKE '%linespeed%'
+                ) m
+                CROSS APPLY (
+                    SELECT TOP 1 Value, SourceTimestamp
+                    FROM MachineTagValue WITH (NOLOCK)
+                    WHERE MachineCode = m.MachineCode
+                      AND OpcNodeId LIKE '%linespeed%'
                     ORDER BY SourceTimestamp DESC
-                """), c, params={"machine": machine})
+                ) ls
+            """), c)
 
-            if df.empty:
+        # Build status dict from query results
+        status_dict = {}
+        for _, row in df.iterrows():
+            machine = row['MachineCode']
+            try:
+                linespeed_value = float(row['Value'])
+                ts = row['SourceTimestamp']
+
+                if ts is None:
+                    status_dict[machine] = {
+                        'status': '🔴 Inactive',
+                        'active': False,
+                        'linespeed_value': linespeed_value,
+                        'linespeed_timestamp': None,
+                        'linespeed_age_seconds': None
+                    }
+                else:
+                    if hasattr(ts, 'tzinfo') and ts.tzinfo is not None:
+                        ts = ts.replace(tzinfo=None)
+                    age_seconds = (now - ts).total_seconds()
+                    ts_str = ts.strftime('%Y-%m-%d %H:%M:%S')
+                    is_fresh = age_seconds <= LINESPEED_FRESHNESS_SECONDS
+
+                    if not is_fresh:
+                        status_dict[machine] = {
+                            'status': '🔴 Inactive',
+                            'active': False,
+                            'linespeed_value': linespeed_value,
+                            'linespeed_timestamp': ts_str,
+                            'linespeed_age_seconds': round(age_seconds, 1)
+                        }
+                    elif linespeed_value > 0:
+                        status_dict[machine] = {
+                            'status': '🟢 Working',
+                            'active': True,
+                            'linespeed_value': linespeed_value,
+                            'linespeed_timestamp': ts_str,
+                            'linespeed_age_seconds': round(age_seconds, 1)
+                        }
+                    else:
+                        status_dict[machine] = {
+                            'status': '🟡 Standby',
+                            'active': False,
+                            'linespeed_value': linespeed_value,
+                            'linespeed_timestamp': ts_str,
+                            'linespeed_age_seconds': round(age_seconds, 1)
+                        }
+            except (ValueError, TypeError):
                 status_dict[machine] = {
                     'status': '🔴 Inactive',
                     'active': False,
@@ -828,58 +882,18 @@ def get_machine_status_by_linespeed() -> dict:
                     'linespeed_timestamp': None,
                     'linespeed_age_seconds': None
                 }
-            else:
-                try:
-                    linespeed_value = float(df.iloc[0]['Value'])
-                    ts = df.iloc[0]['SourceTimestamp']
 
-                    if ts is None:
-                        status_dict[machine] = {
-                            'status': '🔴 Inactive',
-                            'active': False,
-                            'linespeed_value': linespeed_value,
-                            'linespeed_timestamp': None,
-                            'linespeed_age_seconds': None
-                        }
-                    else:
-                        if hasattr(ts, 'tzinfo') and ts.tzinfo is not None:
-                            ts = ts.replace(tzinfo=None)
-                        age_seconds = (now - ts).total_seconds()
-                        ts_str = ts.strftime('%Y-%m-%d %H:%M:%S')
-                        is_fresh = age_seconds <= LINESPEED_FRESHNESS_SECONDS
-
-                        if not is_fresh:
-                            status_dict[machine] = {
-                                'status': '🔴 Inactive',
-                                'active': False,
-                                'linespeed_value': linespeed_value,
-                                'linespeed_timestamp': ts_str,
-                                'linespeed_age_seconds': round(age_seconds, 1)
-                            }
-                        elif linespeed_value > 0:
-                            status_dict[machine] = {
-                                'status': '🟢 Working',
-                                'active': True,
-                                'linespeed_value': linespeed_value,
-                                'linespeed_timestamp': ts_str,
-                                'linespeed_age_seconds': round(age_seconds, 1)
-                            }
-                        else:
-                            status_dict[machine] = {
-                                'status': '🟡 Standby',
-                                'active': False,
-                                'linespeed_value': linespeed_value,
-                                'linespeed_timestamp': ts_str,
-                                'linespeed_age_seconds': round(age_seconds, 1)
-                            }
-                except (ValueError, TypeError):
-                    status_dict[machine] = {
-                        'status': '🔴 Inactive',
-                        'active': False,
-                        'linespeed_value': None,
-                        'linespeed_timestamp': None,
-                        'linespeed_age_seconds': None
-                    }
+        # Mark machines with no linespeed data as Inactive
+        all_machines = load_all_machines()
+        for machine in all_machines:
+            if machine not in status_dict:
+                status_dict[machine] = {
+                    'status': '🔴 Inactive',
+                    'active': False,
+                    'linespeed_value': None,
+                    'linespeed_timestamp': None,
+                    'linespeed_age_seconds': None
+                }
 
         return status_dict
     except Exception:
@@ -1618,115 +1632,69 @@ def load_production_run_quality(run_id: str = None) -> pd.DataFrame:
         return pd.DataFrame()
 
 
-@st.cache_data(ttl=0)
+@st.cache_data(ttl=60)
+def _get_machine_opc_node_ids(machine_code: str) -> set:
+    """Get the set of OpcNodeIds that exist in MachineTagValue for a machine (cached 60s)."""
+    try:
+        with get_engine().connect() as c:
+            df = pd.read_sql(text("""
+                SELECT DISTINCT OpcNodeId
+                FROM MachineTagValue WITH (NOLOCK)
+                WHERE MachineCode = :m
+            """), c, params={"m": machine_code})
+        return set(df['OpcNodeId'].tolist()) if not df.empty else set()
+    except Exception:
+        return set()
+
+
+@st.cache_data(ttl=1)
 def load_current_machine_values(machine_code: str, parameters: list) -> dict:
     """
-    Load latest values per parameter from MachineTagValue.
-    Returns dict: {param: {value, timestamp, exists_in_db, source}}.
-    No caching (ttl=0) for real-time updates every second.
-    """
-    # Convert list to tuple for proper caching
-    if isinstance(parameters, list):
-        parameters = tuple(parameters)
+    Load latest value per parameter from MachineTagValue.
+    Uses a single windowed query with ROW_NUMBER + 48h time bound.
+    Cached 1 second to avoid redundant queries within the same render cycle.
     
+    Returns dict: {param: {value, timestamp, exists_in_db, source}}.
+    """
     if not parameters:
-        print(f"[load_current_machine_values] No parameters provided")
         return {}
     try:
+        # Convert to tuple for cache key hashing, then deduplicate
+        if isinstance(parameters, list):
+            parameters = tuple(parameters)
         uniq = list(dict.fromkeys(parameters))
-        print(f"[load_current_machine_values] Machine: {machine_code}, Unique params: {len(uniq)}")
-        
-        # Simple query first - just get ANY data for this machine to verify connectivity
-        test_query = "SELECT COUNT(*) as cnt FROM MachineTagValue WITH (NOLOCK) WHERE MachineCode = :machine"
-        params_test = {"machine": machine_code}
-        
-        with get_engine().connect() as c:
-            test_df = pd.read_sql(text(test_query), c, params=params_test)
-            total_rows = test_df['cnt'].iloc[0]
-            print(f"[load_current_machine_values] Total rows in MachineTagValue for {machine_code}: {total_rows}")
-        
-        # Now try a query with the IN clause
-        # Use parameterized approach with explicit value list
+
+        # Single query: latest value per param via ROW_NUMBER, bounded to last 48h
         params = {"machine": machine_code}
         param_placeholders = []
         for i, p in enumerate(uniq):
             param_key = f"p{i}"
             params[param_key] = p
             param_placeholders.append(f":{param_key}")
-        
-        # Build IN clause
-        in_clause = "(" + ", ".join(param_placeholders) + ")"
-        
-        query = f"""
-            SELECT TOP 1000 OpcNodeId, Value, SourceTimestamp
-            FROM MachineTagValue WITH (NOLOCK)
-            WHERE MachineCode = :machine AND OpcNodeId IN {in_clause}
-            ORDER BY SourceTimestamp DESC
-        """
-        
-        print(f"[load_current_machine_values] Query template: ...WHERE MachineCode = :machine AND OpcNodeId IN {in_clause}")
-        print(f"[load_current_machine_values] Parameters to pass: {params}")
-        
-        for i, p in enumerate(uniq):
-            print(f"  Param {i}: '{p}'")
 
-        print(f"[load_current_machine_values] Executing query with {len(uniq)} parameters")
-        
-        # DIAGNOSTIC: See what OpcNodeIds exist in database for this machine
-        with get_engine().connect() as c:
-            # FIX: Remove DISTINCT TOP ... ORDER BY pattern - use subquery instead
-            diag_df = pd.read_sql(
-                text("""
-                    SELECT DISTINCT OpcNodeId 
-                    FROM MachineTagValue WITH (NOLOCK) 
-                    WHERE MachineCode = :m
-                """),
-                c,
-                params={"m": machine_code}
+        in_clause = "(" + ", ".join(param_placeholders) + ")"
+
+        query = f"""
+            WITH ranked AS (
+                SELECT OpcNodeId, Value, SourceTimestamp,
+                       ROW_NUMBER() OVER (PARTITION BY OpcNodeId ORDER BY SourceTimestamp DESC) AS rn
+                FROM MachineTagValue WITH (NOLOCK)
+                WHERE MachineCode = :machine
+                  AND OpcNodeId IN {in_clause}
+                  AND SourceTimestamp >= DATEADD(hour, -48, GETDATE())
             )
-            print(f"[load_current_machine_values] DIAGNOSTIC - OpcNodeIds in DB for {machine_code}:")
-            for oid in diag_df['OpcNodeId']:
-                print(f"  DB has: '{oid}'")
-            
-            # Check for matches
-            db_params = set(diag_df['OpcNodeId'].tolist())
-            config_params = set(uniq)
-            matching = db_params & config_params
-            missing = config_params - db_params
-            
-            print(f"  Config has {len(config_params)} params")
-            print(f"  DB has {len(db_params)} OpcNodeIds")
-            print(f"  Matching: {len(matching)}")
-            if missing:
-                print(f"  MISSING from DB:")
-                for m in list(missing)[:3]:
-                    print(f"    - '{m}'")
-            
-            # Store missing params for later status reporting
-            missing_params = missing
-        
+            SELECT OpcNodeId, Value, SourceTimestamp
+            FROM ranked
+            WHERE rn = 1
+        """
+
         with get_engine().connect() as c:
             df = pd.read_sql(text(query), c, params=params)
 
-        print(f"[load_current_machine_values] Query returned {len(df)} rows")
-        print(f"[load_current_machine_values] Columns: {list(df.columns)}")
-        
-        if df.empty:
-            print(f"[load_current_machine_values] DataFrame is empty, returning {{}}")
-            return {}
-
-        # Get the latest (max SourceTimestamp) for each OpcNodeId
-        print(f"[load_current_machine_values] Before grouping: {len(df)} rows")
-        df_latest = df.loc[df.groupby('OpcNodeId')['SourceTimestamp'].idxmax()]
-        print(f"[load_current_machine_values] After grouping (latest per param): {len(df_latest)} rows")
-        
-        if df_latest.empty:
-            print(f"[load_current_machine_values] No latest rows found, returning {{}}")
-            return {}
+        # Get known DB params (cached 60s) for exists_in_db detection
+        db_params = _get_machine_opc_node_ids(machine_code)
 
         result = {}
-        
-        # Add all queried parameters to result
         for param in uniq:
             result[param] = {
                 "value": None,
@@ -1734,33 +1702,24 @@ def load_current_machine_values(machine_code: str, parameters: list) -> dict:
                 "exists_in_db": param in db_params,
                 "source": "not_in_db" if param not in db_params else "no_data",
             }
-        
-        # Update with actual values from the query
-        for _, row in df_latest.iterrows():
+
+        for _, row in df.iterrows():
             param = row["OpcNodeId"]
             value = row["Value"]
             timestamp = row["SourceTimestamp"]
-            
-            print(f"[load_current_machine_values] Processing {param}: raw_value={value} (type={type(value).__name__})")
-            
-            # Convert value to float
+
+            float_val = None
             if pd.notna(value):
                 try:
                     float_val = float(value)
-                    print(f"  -> Converted to float: {float_val}")
-                except (ValueError, TypeError) as ve:
-                    print(f"  -> Failed to convert to float: {ve}")
+                except (ValueError, TypeError):
                     float_val = None
-            else:
-                print(f"  -> Value is NaN/None")
-                float_val = None
-            
+
             result[param]["value"] = float_val
             result[param]["timestamp"] = timestamp
             result[param]["exists_in_db"] = True
             result[param]["source"] = "success"
 
-        print(f"[load_current_machine_values] Returning: {len([r for r in result.values() if r['source']=='success'])} with values, {len([r for r in result.values() if r['source']=='no_data'])} existing in DB but no data, {len([r for r in result.values() if r['source']=='not_in_db'])} not in DB")
         return result
     except Exception as e:
         import traceback

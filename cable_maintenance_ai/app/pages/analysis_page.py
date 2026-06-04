@@ -7,7 +7,6 @@ import pandas as pd
 import numpy as np
 import os
 import sys
-import base64
 from dotenv import load_dotenv
 from datetime import datetime
 from pathlib import Path
@@ -45,7 +44,7 @@ except:
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
-from auth_helpers import ensure_page_authentication, render_nav_bar  # noqa: E402
+from auth_helpers import COFICAB_LOGO_B64, ensure_page_authentication, render_nav_bar  # noqa: E402
 from db_helpers import (
     load_all_machines,
     load_all_parameters_for_machine,
@@ -221,12 +220,19 @@ apply_coficab_theme()
 
 render_nav_bar(current_page="analysis_page")
 
-logo_data_uri = ""
-logo_path = os.path.join(ROOT_DIR, "coficab_logo.png")
-if os.path.exists(logo_path):
-    with open(logo_path, "rb") as logo_file:
-        logo_b64 = base64.b64encode(logo_file.read()).decode("utf-8")
-        logo_data_uri = f"data:image/png;base64,{logo_b64}"
+# Navbar logo — same CSS background-image approach as app.py
+st.markdown(f"""
+<style>
+.cofi-nav__left {{
+    background-image: url('data:image/png;base64,{COFICAB_LOGO_B64}');
+    background-size: contain;
+    background-repeat: no-repeat;
+    background-position: center left;
+    min-width: 140px;
+    height: 36px;
+}}
+</style>
+""", unsafe_allow_html=True)
 
 hero_inner = """
     <div class="cofi-hero__text">
@@ -236,10 +242,7 @@ hero_inner = """
     </div>
 """
 
-if logo_data_uri:
-    hero_html = f'<div class="cofi-hero">{hero_inner}<img class="cofi-hero__logo" src="{logo_data_uri}" alt="Coficab logo" /></div>'
-else:
-    hero_html = f'<div class="cofi-hero">{hero_inner}</div>'
+hero_html = f'<div class="cofi-hero">{hero_inner}<img class="cofi-hero__logo" src="data:image/png;base64,{COFICAB_LOGO_B64}" alt="Coficab logo" /></div>'
 
 st.markdown(hero_html, unsafe_allow_html=True)
 

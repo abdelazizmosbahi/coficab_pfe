@@ -4,15 +4,13 @@ from __future__ import annotations
 
 import os
 import sys
-import base64
 
 import streamlit as st
 
 APP_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, APP_DIR)
-BASE_DIR = os.path.dirname(APP_DIR)
-ROOT_DIR = os.path.dirname(BASE_DIR)
 from auth_helpers import (  # noqa: E402
+    COFICAB_LOGO_B64,
     PAGE_REGISTRY,
     ensure_page_authentication,
     get_pending_operators,
@@ -185,12 +183,19 @@ apply_coficab_theme()
 
 render_nav_bar(current_page="admin_page")
 
-logo_data_uri = ""
-logo_path = os.path.join(ROOT_DIR, "coficab_logo.png")
-if os.path.exists(logo_path):
-    with open(logo_path, "rb") as logo_file:
-        logo_b64 = base64.b64encode(logo_file.read()).decode("utf-8")
-        logo_data_uri = f"data:image/png;base64,{logo_b64}"
+# Navbar logo — same CSS background-image approach as app.py
+st.markdown(f"""
+<style>
+.cofi-nav__left {{
+    background-image: url('data:image/png;base64,{COFICAB_LOGO_B64}');
+    background-size: contain;
+    background-repeat: no-repeat;
+    background-position: center left;
+    min-width: 140px;
+    height: 36px;
+}}
+</style>
+""", unsafe_allow_html=True)
 
 hero_inner = """
     <div class="cofi-hero__text">
@@ -198,10 +203,7 @@ hero_inner = """
         <h1>User Management</h1>
     </div>
 """
-if logo_data_uri:
-    hero_html = f'<div class="cofi-hero">{hero_inner}<img class="cofi-hero__logo" src="{logo_data_uri}" alt="Coficab logo" /></div>'
-else:
-    hero_html = f'<div class="cofi-hero">{hero_inner}</div>'
+hero_html = f'<div class="cofi-hero">{hero_inner}<img class="cofi-hero__logo" src="data:image/png;base64,{COFICAB_LOGO_B64}" alt="Coficab logo" /></div>'
 st.markdown(hero_html, unsafe_allow_html=True)
 
 # ── Section 1: Pending Approvals ─────────────────────────────────────────────
@@ -259,6 +261,8 @@ if all_users:
             page_access = "All pages (analyst)"
         elif perms is None:
             page_access = "Default (Realtime only)"
+        elif len(perms) == len(PAGE_REGISTRY) and all(p in perms for p in PAGE_REGISTRY):
+            page_access = "Full Access (all pages)"
         else:
             page_access = ", ".join(PAGE_REGISTRY.get(p, p) for p in perms) if perms else "Default (Realtime only)"
 
@@ -301,7 +305,11 @@ if all_users:
         with st.expander(f"✏️ {uid}", expanded=False):
             st.write(f"**User:** {uid}  ·  **Status:** {u['approval_status']}  ·  **Active:** {'Yes' if u['is_active'] else 'No'}")
 
-            is_full_access = current_perms is None
+            is_full_access = (
+                current_perms is not None
+                and len(current_perms) == len(PAGE_REGISTRY)
+                and all(p in current_perms for p in PAGE_REGISTRY)
+            )
             grant_all = st.checkbox(
                 "✅ Grant Full Access (Configuration + Analysis + Realtime)",
                 value=is_full_access,
@@ -323,7 +331,7 @@ if all_users:
             with col_save:
                 if st.button("💾 Save Permissions", key=f"save_perms_{uid}"):
                     if grant_all:
-                        ok, msg = set_user_page_permissions(uid, None)
+                        ok, msg = set_user_page_permissions(uid, list(PAGE_REGISTRY.keys()))
                     else:
                         selected = [p for p, checked in page_checks.items() if checked]
                         ok, msg = set_user_page_permissions(uid, selected)
