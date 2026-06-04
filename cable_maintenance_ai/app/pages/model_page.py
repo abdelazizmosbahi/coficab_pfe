@@ -1,7 +1,5 @@
 """
-Cable Manufacturing - Model Analysis & Real-Time Monitoring
-Execute configuration analysis and display real-time parameter monitoring with quality predictions.
-Styled to match opcua_realtime_page (Coficab theme, nav, hero, monitoring layout).
+
 """
 
 import streamlit as st
@@ -2128,7 +2126,6 @@ else:
                 else:
                     totalScore += 100.0 if val == mn else 0.0
 
-        # Probability calculations removed - prediction probability card removed from UI
 
         # ────── RENDER PARAMETER CARDS INSIDE FRAGMENT ──────
         # This ensures cards update every second with fresh data
@@ -2363,9 +2360,7 @@ else:
     # Call the card rendering fragment
     render_parameter_cards()
 
-    # Mistral Analysis function removed - prediction probability card removed from UI
 
-    # Mistral analysis modal removed - prediction card feature removed
 
     # Auto-refresh every second for real-time updates
     time.sleep(1)

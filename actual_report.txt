@@ -1,0 +1,1201 @@
+Acknowledgments
+I would like to express my sincere gratitude to the team at COFICAB for providing me
+with the opportunity to undertake this internship and for their unwavering support throughout
+the process. Their collaborative environment and resources were instrumental in the successful
+development of this project. Special thanks go to my supervisors, Mr. Malek Boudhief and Ms.
+Mouna Bouzazi, for their invaluable assistance, expert guidance, and encouragement during
+the internship. Their insights and feedback were pivotal in shaping the project's direction and
+ensuring its alignment with professional standards. Without their contributions, this work would
+not have been possible.
+I would also like to thank the ELLOUMI Group for fostering a culture of innovation and
+excellence that made this project a reality.
+Iteam-2025 Page i
+TABLE OF CONTENTS
+LIST OF FIGURES iv
+LIST OF TABLES vii
+GENERAL INTRODUCTION 1
+1 Preliminary Study 3
+1.1 Project Presentation . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 4
+1.1.1 Introduction . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 4
+1.1.2 Problem Statement . . . . . . . . . . . . . . . . . . . . . . . . . . . . 4
+1.1.3 Proposed Solution . . . . . . . . . . . . . . . . . . . . . . . . . . . . 5
+1.2 Software Development Methodology . . . . . . . . . . . . . . . . . . . . . . . 6
+1.2.1 Justification of Kanban . . . . . . . . . . . . . . . . . . . . . . . . . . 6
+1.3 Presentation of the Host Company . . . . . . . . . . . . . . . . . . . . . . . . 7
+1.3.1 History and Membership in the ELLOUMI Group . . . . . . . . . . . 7
+1.3.2 Key Figures (2024) . . . . . . . . . . . . . . . . . . . . . . . . . . . . 7
+1.3.3 Vision . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 8
+1.4 Technologies and Tools . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 9
+1.5 Architecture . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 9
+1.5.1 Application Architecture . . . . . . . . . . . . . . . . . . . . . . . . . 9
+1.5.2 Database . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 10
+1.6 Conclusion . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 10
+2 Requirements Analysis and Specification 11
+2.1 Introduction . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 12
+2.2 User Profiles . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 12
+2.3 Functional Requirements . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 12
+2.4 Non-Functional Requirements . . . . . . . . . . . . . . . . . . . . . . . . . . 16
+2.5 Use Case Diagrams . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 17
+2.6 Kanban Task Board . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 20
+Iteam-2025 Page ii
+TABLE OF CONTENTS
+2.7 Conclusion . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 21
+3 Conception 22
+3.1 Introduction . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 23
+3.2 UML Diagrams . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 23
+3.2.1 Use Case Diagrams . . . . . . . . . . . . . . . . . . . . . . . . . . . . 23
+3.2.1.1 Configuration Management — Use Case Diagram . . . . . . . 23
+3.2.1.2 Real-Time Monitoring — Use Case Diagram . . . . . . . . . . 24
+3.2.1.3 Analysis Datasheet Generation — Use Case Diagram . . . . . 25
+3.2.1.4 Mistral AI Root Cause Analysis — Use Case Diagram . . . . . 27
+3.2.1.5 Class Diagram . . . . . . . . . . . . . . . . . . . . . . . . . . 29
+3.2.2 Sequence Diagrams . . . . . . . . . . . . . . . . . . . . . . . . . . . . 30
+3.2.2.1 Authentication — Sequence Diagram . . . . . . . . . . . . . 31
+3.2.2.2 Machine Configuration — Sequence Diagram . . . . . . . . . 31
+3.2.2.3 Real-Time Monitoring — Sequence Diagram . . . . . . . . . . 32
+3.2.2.4 Datasheet Analysis — Sequence Diagram . . . . . . . . . . . 33
+3.2.2.5 Root Cause Analysis — Sequence Diagram . . . . . . . . . . 34
+3.2.3 Activity Diagrams . . . . . . . . . . . . . . . . . . . . . . . . . . . . 35
+3.2.3.1 User Login — Activity Diagram . . . . . . . . . . . . . . . . 36
+3.2.3.2 User Registration — Activity Diagram . . . . . . . . . . . . . 37
+3.2.3.3 Machine Configuration — Activity Diagram . . . . . . . . . . 39
+3.2.3.4 Real-Time Monitoring — Activity Diagram . . . . . . . . . . 41
+3.3 Conclusion . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 42
+4 Realization 43
+4.1 Introduction . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 44
+4.2 Implementation . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 44
+4.3 Database Tables . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 44
+4.4 Key Implementation Components . . . . . . . . . . . . . . . . . . . . . . . . 45
+4.4.1 Authentication System (auth_helpers.py — 970 lines) . . . . . . . . . . 45
+4.4.2 Database Helpers (db_helpers.py — ~2,700 lines) . . . . . . . . . . . . 46
+4.4.3 Machine Configuration Page (configuration_page.py — 720 lines) . . . 46
+4.4.4 Real-Time Monitoring Page (model_page.py — ~2,000 lines) . . . . . 46
+4.4.5 Analysis Datasheet Page (analysis_page.py — 827 lines) . . . . . . . . 47
+4.4.6 Admin Panel (admin_page.py — 354 lines) . . . . . . . . . . . . . . . 47
+Iteam-2025 Page iii
+TABLE OF CONTENTS
+4.4.7 Page Access Management System (auth_helpers.py — 970 lines) . . . . 48
+4.5 User Interface . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 49
+4.5.1 Home Page Interface Screenshot . . . . . . . . . . . . . . . . . . . . . 50
+4.5.2 Authentication Page Interface Screenshot . . . . . . . . . . . . . . . . 50
+4.5.3 Configuration Page Interface Screenshot . . . . . . . . . . . . . . . . . 51
+4.5.4 Real-Time Monitoring Interface Screenshot . . . . . . . . . . . . . . . 52
+4.5.5 Analysis Datasheet Interface Screenshot . . . . . . . . . . . . . . . . . 52
+4.5.6 Traceability Chart Interface Screenshot . . . . . . . . . . . . . . . . . 53
+4.5.7 Mistral AI Root Cause Analysis Screenshot . . . . . . . . . . . . . . . 54
+4.5.8 Admin Panel Interface Screenshot . . . . . . . . . . . . . . . . . . . . 54
+4.6 Deployment and Monitoring . . . . . . . . . . . . . . . . . . . . . . . . . . . 55
+4.6.1 Introduction . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 55
+4.6.2 Docker Containerization . . . . . . . . . . . . . . . . . . . . . . . . . . 56
+4.6.3 CI/CD Pipeline . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 56
+4.6.4 Configuration . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 57
+4.6.5 Monitoring . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 57
+4.6.6 Conclusion . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 58
+GENERAL CONCLUSION and Future Perspectives 58
+Iteam-2025 Page iv
+LIST OF FIGURES
+1.1 COFICAB Key Figures 2024 infographic. . . . . . . . . . . . . . . . . . . . . 8
+2.1 General Use Case Diagram . . . . . . . . . . . . . . . . . . . . . . . . . . . . 18
+2.2 Operator Use Case Diagram . . . . . . . . . . . . . . . . . . . . . . . . . . . 19
+2.3 Analyst Use Case Diagram . . . . . . . . . . . . . . . . . . . . . . . . . . . . 20
+3.1 Configuration Management Use Case Diagram . . . . . . . . . . . . . . . . . 23
+3.2 Real-Time Monitoring — Use Case Diagram . . . . . . . . . . . . . . . . . . 24
+3.3 Analysis Datasheet Generation — Use Case Diagram screenshot to be added . 25
+3.4 Mistral AI Root Cause Analysis — Use Case Diagram . . . . . . . . . . . . . 27
+3.5 Class Diagram — System Entities . . . . . . . . . . . . . . . . . . . . . . . . 29
+3.6 Authentication — Sequence Diagram . . . . . . . . . . . . . . . . . . . . . . 31
+3.7 Authentication — Sequence Diagram . . . . . . . . . . . . . . . . . . . . . . 32
+3.8 Real-Time Monitoring — Sequence Diagram . . . . . . . . . . . . . . . . . . 33
+3.9 Datasheet Analysis — Sequence Diagram . . . . . . . . . . . . . . . . . . . . 34
+3.10 Root Cause Analysis — Sequence Diagram . . . . . . . . . . . . . . . . . . . 35
+3.11 User Login Activity Diagram . . . . . . . . . . . . . . . . . . . . . . . . . . . 36
+3.12 User Registration Activity Diagram . . . . . . . . . . . . . . . . . . . . . . . 37
+3.13 Machine Configuration Activity Diagram . . . . . . . . . . . . . . . . . . . . 39
+3.14 Real-Time Monitoring Activity Diagram . . . . . . . . . . . . . . . . . . . . . 41
+4.1 Home Page Interface Screenshot . . . . . . . . . . . . . . . . . . . . . . . . . 45
+4.2 Home Page Interface Screenshot . . . . . . . . . . . . . . . . . . . . . . . . . 50
+4.3 Authentication Page Interface Screenshot . . . . . . . . . . . . . . . . . . . . 51
+4.4 Configuration Page Interface Screenshot . . . . . . . . . . . . . . . . . . . . . 51
+4.5 Real-Time Monitoring Interface Screenshot . . . . . . . . . . . . . . . . . . . 52
+4.6 Analysis Datasheet Interface Screenshot . . . . . . . . . . . . . . . . . . . . . 53
+4.7 Traceability Chart Interface Screenshot . . . . . . . . . . . . . . . . . . . . . 53
+4.8 Mistral AI Root Cause Analysis Screenshot . . . . . . . . . . . . . . . . . . . 54
+Iteam-2025 Page v
+LIST OF FIGURES
+4.9 Admin Panel Interface Screenshot . . . . . . . . . . . . . . . . . . . . . . . . 55
+Iteam-2025 Page vi
+LIST OF TABLES
+LIST OF TABLES
+3.1 Use Case - Configure Machine . . . . . . . . . . . . . . . . . . . . . . . . . . 24
+3.2 Use Case - Monitor Parameters . . . . . . . . . . . . . . . . . . . . . . . . . . 25
+3.3 Use Case - Generate Datasheet . . . . . . . . . . . . . . . . . . . . . . . . . . 26
+3.4 Use Case - Analyze Root Cause . . . . . . . . . . . . . . . . . . . . . . . . . 28
+3.5 Authentication Flow . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 31
+3.6 Machine Configuration Flow . . . . . . . . . . . . . . . . . . . . . . . . . . . 32
+3.7 Real-Time Machine Monitoring Flow . . . . . . . . . . . . . . . . . . . . . . 33
+3.8 Recipe Datasheet Generation Flow . . . . . . . . . . . . . . . . . . . . . . . . 34
+3.9 AI-Based Root Cause Analysis Flow . . . . . . . . . . . . . . . . . . . . . . . 35
+3.10 Authentication Session Flow . . . . . . . . . . . . . . . . . . . . . . . . . . . 37
+3.11 User Registration Flow . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 38
+3.12 Configuration Creation Flow . . . . . . . . . . . . . . . . . . . . . . . . . . . 40
+3.13 Real-Time Monitoring Flow . . . . . . . . . . . . . . . . . . . . . . . . . . . 42
+4.1 Environment Variables . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 57
+Iteam-2025 Page vii
+Introduction
+This internship report presents Cable Manufacturing AI, a Streamlit-based monitoring and
+analysis system for cable production that unifies SQL Server-backed OPC UA trace data,
+machine configuration management, and Mistral AI-powered root cause analysis to deliver
+real-time parameter monitoring and recipe-aware datasheet generation for operator decision
+support. The project centers on three operational pillars — machine configuration management,
+real-time parameter monitoring with specification comparison, and recipe-aware production
+datasheet analysis — so operators can compare current values against expected ranges, track
+deviations across production runs, and generate statistical baselines from labeled samples.
+The core problem addressed is the gap between high-frequency sensor signals and actionable
+quality insight on the shop floor, where raw data alone makes it difficult to detect out-of-spec
+behavior early or understand parameter behavior across production runs. Cable Manufacturing
+AI solves this by transforming event-based machine tags into structured monitoring views,
+applying specification-range comparison for real-time status, and presenting interpretable
+dashboards that highlight out-of-range parameters while providing traceable context for
+root-cause analysis via Mistral AI.
+The result is a scalable, data-driven workflow that supports both live monitoring and historical
+analysis within a single, consistent Streamlit application. This report details the development
+of Cable Manufacturing AI, organized into four chapters :
+- Chapter I provides a preliminary study, presenting the project and outlining the methodology,
+tools, and architecture. - Chapter II specifies requirements, including user profiles, functional
+and non-functional requirements, and the Kanban task board. - Chapter III describes the conception
+phase, focusing on UML diagrams for system design. - Chapter IV discusses the realization,
+covering implementation and user interface development.
+Iteam-2025 Page 1
+INTRODUCTION
+And conclude with a summary of results, challenges encountered, and future perspectives,
+followed by references and annexes.
+Iteam-2025 Page 2
+Chapitre
+1
+Preliminary Study
+Iteam-2025 Page 3
+PRELIMINARY STUDY
+1.1 Project Presentation
+1.1.1 Introduction
+This preliminary study presents Cable Manufacturing AI, a comprehensive Streamlit-based
+monitoring, configuration, and analysis system tailored for cable production lines
+at COFICAB. This chapter presents the project, analyzes the operational challenges, details
+the proposed solution with its four interconnected components, and outlines the development
+methodology, technologies, and architecture.
+The application is built around three core workflows — real-time OPC UA monitoring,
+parameter traceability, and recipe-aware datasheet analysis — while the Configuration
+Management Module forms the backbone of the system.
+1.1.2 Problem Statement
+In cable production, high-frequency sensor data and recipe parameters are collected via
+OPC UA and stored as raw time-series events in the MachineTagValue table. Operators and
+analysts lack a unified platform that connects live parameter values to expected specification
+ranges, integrates historical behavior analysis, and generates statistical reference datasheets
+from labeled production runs.
+Existing setups separate configuration management, reference datasheet generation, real-time
+monitoring, and quality analysis, resulting in :
+- Delayed detection of out-of-spec parameter deviations - Difficulty performing root-cause
+analysis when quality issues arise - Limited visibility into parameter behavior across production
+runs - Fragmented workflows requiring manual data gathering across multiple tools
+This separation of concerns prevents COFICAB from achieving proactive, data-driven quality
+management in its high-volume cable manufacturing environment.
+Iteam-2025 Page 4
+PRELIMINARY STUDY
+1.1.3 Proposed Solution
+Cable Manufacturing AI is a unified, SQL Server-backed system that seamlessly integrates
+machine configuration management, automated reference datasheet generation, real-time parameter
+monitoring, and AI-powered root cause analysis through Mistral. The system supports two
+primary user roles :
+- Operators — Monitor live production, detect out-of-spec parameters, and respond to deviations,
+can configure machines and generate datasheets if granted access by an Analyst. - Analysts — Configure
+machines, select monitoring and recipe parameters, build reference datasheets from labeled
+production runs, and manage operator accounts and page-level permissions.
+The solution is structured around four interconnected components that form the Cable Manufacturing
+AI platform :
+1. Configuration Page (Streamlit UI) — Full CRUD interface for creating, editing, and
+managing machine configurations with live machine-status indicators based on LineSpeed data.
+Supports two configuration types: realtime (for live monitoring) and analysis (for datasheet generation).
+2. Model Page (Streamlit UI) — Real-time parameter monitoring with specification-violation
+badges, traceability charts (3-second sliding window + full timeline with overlay comparison),
+and AI-generated root-cause analysis via Mistral when parameters exceed safe ranges.
+3. Analysis Page (Streamlit UI) — Recipe-aware reference datasheet generator that loads
+production runs, collects labeled samples (up to 1,200 per parameter per run), and computes
+statistical baselines (Min, Max, Mean, StdDev, SampleCount) with quality correlation using the
+ProductionRunQuality IsOk flag. Supports both production-run-based and time-window-based
+analysis modes.
+4. Notebook-Based Analysis Engine (optional) — Jupyter notebooks executed via Papermill
+that analyze historical data per configuration and store reference datasheets in the database.
+Referenced by model_page.py for initial data analysis.
+Iteam-2025 Page 5
+PRELIMINARY STUDY
+Key features include OPC UA data connectivity via MachineTagValue table, specification
+bands with visual violation badges, sliding-window real-time traceability charts, Mistral AI
+for natural-language root cause analysis, full audit trails through productionrun and
+ProductionRunQuality tables, and role-based page-level access control with operator approval
+workflow.
+The platform directly addresses COFICAB's need for data-driven quality monitoring in high-volume
+cable manufacturing.
+1.2 Software Development Methodology
+1.2.1 Justification of Kanban
+The project adopts Kanban for its flexibility, which is ideal for solo development. Tasks
+flow through a board with columns To Do, In Progress, and Done without fixed sprints, enabling
+continuous delivery and real-time adjustments as new requirements emerge during development.
+As a solo developer working on the complex and evolving Cable Manufacturing AI project,
+Kanban is the superior choice. It eliminates Scrum's overhead of ceremonies and rigid sprints,
+enabling :
+- Continuous progress without interruption for sprint planning - Immediate incorporation of
+new insights from stakeholder feedback - Full flexibility to adjust priorities at any time based
+Iteam-2025 Page 6
+PRELIMINARY STUDY
+on emerging requirements - Visual workflow management using a simple board with clear task
+states
+The Kanban board was maintained throughout the project lifecycle (January — May 2025)
+and is detailed in Chapter 2 with bi-weekly snapshots.
+1.3 Presentation of the Host Company
+1.3.1 History and Membership in the ELLOUMI Group
+COFICAB is the leading global partner in the design, manufacturing, and sales of cables and
+wires. Founded in 1992 by Mr. Hichem Elloumi in Tunisia, the company is a proud member of
+the ELLOUMI Group, an industrial conglomerate established in 1946 by Mr. Taoufik Elloumi.
+What began as a small Tunisian enterprise has grown into a major international player
+through exceptional organic growth and strategic expansion. The ELLOUMI Group has evolved
+through key milestones : SOTEE (1946), Chakira Distribution (1946), Chakira (1963), TEM
+(1982), COFAT (1984), and later STIFEN (1996), CHAKIRA IMMOBILIER (2000), and BTK
+(2021). COFICAB itself was established in 1992 and quickly became the group's flagship in
+automotive, energy, and appliance cables.
+Mr. Hichem Elloumi, Chairman and CEO, emphasizes that COFICAB is fully committed to
+sustainability-driven growth and innovation, aiming to leave a better world for future generations.
+The company continues to expand its global footprint to be closer to customers while reducing
+its carbon footprint and supply-chain impact. Beyond its core leadership in the automotive
+megatrends of E-Mobility, Connectivity, and Autonomous Driving, COFICAB has successfully
+entered the appliance, medical, and distribution sectors, always working in close partnership
+with clients to meet their specific needs.
+1.3.2 Key Figures (2024)
+Today COFICAB operates on an impressive global scale :
+Iteam-2025 Page 7
+PRELIMINARY STUDY
+— 4 billion USD turnover
+— 42 million kilometers of wires and cables sold
+— No. 1 worldwide with 23% market share in automotive industry cables and wires
+— 20 production sites (+ 5 ongoing)
+— 14 sales offices
+— 4 R&D+I centers of excellence
+— 9,000 employees
+— Presence on 4 continents and in 16 countries
+FIGURE 1.1 – COFICAB Key Figures 2024 infographic.
+1.3.3 Vision
+COFICAB's vision is to be the best-in-class partner for automotive cables and wires, committed
+to exceeding customer expectations through sustainable growth by :
+— Expanding global presence to serve customers worldwide
+— Striving for technology and operational excellence
+— Sharing values and success with employees and partners
+Iteam-2025 Page 8
+PRELIMINARY STUDY
+1.4 Technologies and Tools
+The project utilizes the following technologies and tools :
+— Frontend & UI : Streamlit (Python-based web framework)
+— Backend Logic : Python 3.11 + SQLAlchemy for database connectivity
+— Database : Microsoft SQL Server (MachineTagValue, productionrun, model_schema tables)
+— Visualization : Plotly for interactive real-time traceability charts
+— AI Integration : Mistral AI API for natural-language root-cause analysis
+— Connectivity : Data read from MachineTagValue table (populated by OPC UA)
+— Authentication : PBKDF2-HMAC-SHA256 password hashing with HMAC-signed session tokens
+— Containerization : Docker with Docker Compose
+— CI/CD : GitHub Actions automated build and push to GitHub Container Registry (GHCR)
+— Tools : VS Code, Git/GitHub, dotenv, Papermill for optional notebook execution
+1.5 Architecture
+1.5.1 Application Architecture
+The system follows a modular Streamlit multi-page architecture organized around three core
+operational pillars :
+— Configuration Layer (model_schema.machine_configuration table) — Stores monitoring
+and recipe parameter selections per machine with CRUD support
+— Real-Time Monitoring Layer (model_page.py) — Loads reference datasheets, fetches
+live values from MachineTagValue, compares against specification ranges, and renders
+traceability charts
+— Analysis Layer (analysis_page.py) — Loads production runs, collects labeled sensor
+samples, computes parameter statistics, and saves reference datasheets
+Iteam-2025 Page 9
+PRELIMINARY STUDY
+Data Flow :
+1. OPC UA sensors write data to MachineTagValue (time-series events)
+2. Configuration page saves machine setups to model_schema.machine_configuration
+3. Analysis page loads production runs from productionrun table, collects samples from
+MachineTagValue, computes statistics, and stores reference datasheets in
+model_schema.parameter_reference_datasheet
+4. Model page loads reference datasheets and compares live values from MachineTagValue
+in real-time with 1-second auto-refresh
+5. Out-of-spec parameters trigger Mistral AI for natural-language root-cause analysis
+1.5.2 Database
+The main SQL Server tables support structured monitoring and traceability :
+— machine_configuration (model_schema) — Stores configurations, monitoring & recipe
+parameters as JSON arrays
+— MachineTagValue (dbo) — Time-series sensor events (core data source)
+— productionrun (dbo) — Production run metadata with time ranges
+— ProductionRunQuality (dbo) — Quality labels (IsOk flag) per production run
+— parameter_reference_datasheet (model_schema) — Stores min/mean/max values per
+parameter with recipe context
+— analysis_results_[MACHINE] (model_schema) — Per-machine parameter-level analysis
+history with RunSequence tracking
+— users (model_schema) — User accounts with bcrypt password hashing and page permissions
+— datasheet_runs (model_schema) — Analysis run metadata tracking
+— tags_mapping (dbo) — Machine-to-parameter mappings
+1.6 Conclusion
+This preliminary study establishes the foundation of Cable Manufacturing AI as a unified,
+production-ready monitoring and analysis system designed specifically for COFICAB's cable
+manufacturing environment. The platform, combining SQL Server-backed traceability, real-time
+specification monitoring, and Mistral AI insights in Streamlit, directly addresses
+the gap between raw sensor data and actionable quality insight.
+The modular architecture provides scalability, interpretability, and operational value, preparing
+the ground for detailed requirements specification and implementation in the following chapters.
+Iteam-2025 Page 10
+Chapitre
+2
+Requirements Analysis and Specification
+Iteam-2025 Page 11
+REQUIREMENTS ANALYSIS AND SPECIFICATION
+2.1 Introduction
+This chapter defines the requirements for Cable Manufacturing AI using Kanban's iterative
+workflow. It identifies user profiles, specifies functional and non-functional requirements, describes
+use case diagrams, and presents the Kanban task board, aligning with the platform's goal of
+unified, data-driven quality monitoring with real-time AI support.
+2.2 User Profiles
+This section identifies two primary user roles for the Cable Manufacturing AI system :
+— Operator : Shop-floor personnel responsible for monitoring live production parameters.
+Operators view real-time data, detect out-of-spec conditions, and respond to alerts. They
+do not modify machine configurations or generate datasheets. Access to restricted pages
+(Configuration, Analysis, Admin) is granted explicitly by an Analyst on a per-user basis.
+New operator registrations require approval from an Analyst before the account becomes
+active.
+— Analyst : Quality engineers and data analysts responsible for managing the system. Analysts
+configure machines, select monitoring and recipe parameters, generate reference datasheets,
+and investigate quality correlations. Additionally, Analysts serve as
+system administrators : they approve or decline operator registration requests, view all
+registered users, manage per-operator page-level access permissions via the Admin Panel,
+and permanently delete operator accounts. Analysts have unrestricted access to all system
+pages.
+2.3 Functional Requirements
+List of the functional requirements (FR) to ensure Cable Manufacturing AI meets user and
+system needs :
+Iteam-2025 Page 12
+REQUIREMENTS ANALYSIS AND SPECIFICATION
+— FR1 : Authenticate : Users log in with User ID and password via PBKDF2-secured
+authentication
+— FR2 : Register : New users create accounts with User ID and password
+— FR3 : Logout : Authenticated users securely end their session
+— FR4 : View Home Dashboard : Users see system overview, workflow guide, and key
+metrics
+— FR5 : View Machine Status : Users see all machines with real-time LineSpeed-based
+status (Working/Standby/Inactive)
+— FR6 : Create Configuration : Analysts create new machine configurations with monitoring
+and recipe parameters
+— FR7 : Edit Configuration : Analysts modify existing machine configurations
+— FR8 : Delete Configuration : Analysts remove machine configurations
+— FR9 : View Configurations: Analysts browse and search saved configurations by machine
+— FR10 : Select Monitoring Parameters : Analysts choose which OPC NodeIds to track
+for a machine
+— FR11 : Designate Recipe Parameters : Analysts mark a subset of monitoring parameters
+as recipe-defining
+— FR12 : Save Configuration : System persists configurations to machine_configuration
+table
+— FR13 : Load Production Runs : System retrieves production runs for a selected machine
+— FR14 : Filter Runs by Quality : System filters production runs by IsOk quality flag
+— FR15 : Select Sample Runs : Analysts choose production runs for sample collection
+— FR16 : Collect Labeled Samples : System collects up to 1,200 samples per parameter per
+selected run from MachineTagValue, with 12-hour time buffer
+Iteam-2025 Page 13
+REQUIREMENTS ANALYSIS AND SPECIFICATION
+— FR17 : Calculate Statistics : System computes Min, Max, Mean, StdDev, SampleCount per
+parameter
+— FR18 : Correlate Quality : System labels samples with IsOk from ProductionRunQuality
+table
+— FR19 : View Datasheet : Analysts view generated reference datasheets with parameter
+statistics and quality counts
+— FR20 : Browse Previous Datasheets: System shows previous analysis runs for comparison
+with metrics (sample count, OK %, timestamps)
+— FR21 : Time Window Analysis : Analysts can define custom time windows to find
+production runs within a date range
+— FR22 : Select Configuration for Monitoring : Operators select a saved configuration
+to monitor
+— FR23 : Display Reference Ranges : System shows Min/Max/Mean specification ranges from
+analysis results
+— FR24 : Show Real-Time Values : System displays current parameter values from MachineTagValue
+with 1-second auto-refresh
+— FR25 : Show Spec Violation Badges : System visually highlights out-of-range parameters
+with gap distance and percentage of spec span
+— FR26 : Display Parameter Cards : System shows parameter cards with color-coded status,
+current value, specification range, and last update time
+— FR27 : Show 3-Second Traceability : System renders real-time sliding-window charts
+(last 3 seconds) with spec range background
+— FR28 : Show Full Timeline : System renders complete historical traceability charts
+with snapshot capability
+— FR29 : Compare Parameters : Operators overlay multiple parameters on traceability
+charts with auto-scaling secondary Y-axis
+— FR30 : Trigger Root Cause Analysis : System sends out-of-spec parameter data to
+Mistral AI for analysis
+— FR31 : Display Mistral Insights : System presents AI-generated root cause analysis with
+corrective actions
+— FR32 : Auto-Refresh Monitoring : System refreshes parameter values every 1 second
+via Streamlit fragments
+— FR33 : Approve Operators : Analysts view pending operator registration requests and
+approve or decline them
+— FR34 : List All Users : Analysts view all registered users with their role, approval status,
+active flag, page permissions, creation date, and last login
+Iteam-2025 Page 14
+REQUIREMENTS ANALYSIS AND SPECIFICATION
+— FR35 : Manage Page Permissions : Analysts grant or revoke page-level access for each
+operator via checkboxes in the Admin Panel
+— FR36 : Grant Full Access : Analysts enable a "Grant Full Access" toggle to give an
+operator access to all available pages at once
+— FR37 : Select Individual Pages : Analysts individually check which restricted pages
+(Configuration, Analysis) each operator may access
+— FR38 : Restrict Page Access : Operators without explicit permission for a restricted page
+receive an access-denied message and are blocked from viewing it
+— FR39 : Role-Based Navigation : The navigation bar dynamically shows or hides links
+based on the user's role and page permissions
+— FR40 : Default Page Access : All authenticated operators have access to the Home page
+and the Realtime Monitoring page by default, without requiring explicit permission
+— FR41 : Delete User : Analysts permanently delete operator accounts from the Admin
+Panel, removing the user record entirely from the database
+— FR42 : Activate/Disable User : Analysts can enable or disable operator accounts from
+the Admin Panel
+2.4 Non-Functional Requirements
+We specify non-functional requirements (NFR) to ensure system performance and usability :
+— NFR1 : Performance : Real-time monitoring fragment refreshes within 1 second. Database
+queries complete within 10 seconds for typical workloads.
+— NFR2 : Scalability : System handles monitoring of up to 50 parameters simultaneously
+across multiple machines. Database caching (TTL : 10–600 seconds) reduces query load.
+— NFR3 : Availability : Core monitoring functionality remains operational even if Mistral
+AI API is unavailable. Graceful degradation with status-only display.
+— NFR4 : Security : Passwords hashed with PBKDF2-HMAC-SHA256 (120,000 iterations).
+Session tokens use HMAC-signed payloads. LocalStorage-based session persistence with
+query-parameter fallback.
+— NFR5 : Usability : Intuitive UI with clear navigation (Configuration → Realtime →
+Analysis). Machine status indicators (Working/Standby/Inactive) provide immediate operational
+awareness.
+— NFR6 : Data Integrity : Analysis results stored with RunSequence tracking for auditability.
+Configuration changes logged with timestamps. Database transactions ensure consistency.
+— NFR7 : Caching Strategy : Multi-tier caching : Streamlit @st.cache_data decorators
+with configurable TTLs (10s for real-time, 60s for sensor traces, 300s for configurations, 600s for analysis
+results).
+Iteam-2025 Page 15
+REQUIREMENTS ANALYSIS AND SPECIFICATION
+— NFR8 : Error Handling : Database connection testing with graceful failure. Clear user-facing error messages.
+2.5 Use Case Diagrams
+This section describes use case diagrams to model system interactions :
+— General Use Case Diagram (Main System) : Shows interactions of Operator and Analyst
+roles with use cases including authentication, machine configuration management, real-time
+monitoring, datasheet generation, and root cause analysis.
+Iteam-2025 Page 16
+REQUIREMENTS ANALYSIS AND SPECIFICATION
+FIGURE 2.1 – General Use Case Diagram
+The main system encompasses the following primary use cases :
+- Authenticate (FR1–FR3) : Login, register, and logout with session management - Manage
+Configuration (FR6–FR12) : Create, read, update, delete machine configurations - Monitor
+Parameters (FR22–FR31) : Real-time parameter monitoring with specification comparison -
+Generate Datasheet (FR13–FR20) : Production run analysis and reference datasheet generation
+- Analyze Root Cause (FR30–FR31) : AI-powered anomaly analysis via Mistral
+Iteam-2025 Page 17
+REQUIREMENTS ANALYSIS AND SPECIFICATION
+— Operator Use Case Diagram : Focuses on the Operator's limited but critical capabilities:
+selecting configurations, viewing real-time parameter values, detecting out-of-spec conditions,
+viewing traceability charts, and triggering root cause analysis.
+FIGURE 2.2 – Operator Use Case Diagram
+— Analyst Use Case Diagram : In addition to all Operator use cases, Analysts have exclusive
+access to the Admin Panel for user management. This includes : reviewing pending operator
+registrations, approving or declining new accounts, listing all registered users with their metadata,
+managing per-operator page-level permissions through a checkbox-based interface with a "Grant
+Full Access" option, activating/disabling users, and permanently deleting operator accounts.
+Iteam-2025 Page 18
+REQUIREMENTS ANALYSIS AND SPECIFICATION
+FIGURE 2.3 – Analyst Use Case Diagram
+2.6 Kanban Task Board
+This section organizes tasks using a Kanban board, reflecting the iterative workflow updated
+through the project lifecycle (February — May 2025) :
+Iteam-2025 Page 19
+REQUIREMENTS ANALYSIS AND SPECIFICATION
+2.7 Conclusion
+This chapter defines Cable Manufacturing AI's requirements and task organization, ensuring
+alignment with user needs and system goals including AI-powered root cause analysis. The
+Kanban approach facilitated flexible development, while use case diagrams clarified interactions
+between Operators and Analysts. The next chapter details the system's design through UML
+diagrams.
+Iteam-2025 Page 20
+Chapitre
+3
+Conception
+Iteam-2025 Page 21
+CONCEPTION
+3.1 Introduction
+This chapter presents the design of Cable Manufacturing AI, focusing on UML diagrams to
+model the system's structure and behavior. This chapter organizes the UML content to guide
+development and ensure clarity across the Streamlit frontend, database layer, and
+Mistral AI integration.
+3.2 UML Diagrams
+Cable Manufacturing AI uses UML to ensure alignment across Streamlit pages, SQL
+Server database, and Mistral AI. The diagrams include use case,
+class, sequence, and activity diagrams, detailed below.
+3.2.1 Use Case Diagrams
+3.2.1.1 Configuration Management — Use Case Diagram
+FIGURE 3.1 – Configuration Management Use Case Diagram
+Iteam-2025 Page 22
+CONCEPTION
+TABLE 3.1 – Use Case - Configure Machine
+Element Description
+Use Case Name Configure Machine
+Actor Analyst
+Description Analyst creates or modifies a machine configuration by
+selecting monitoring parameters and designating recipe
+parameters.
+Precondition Analyst is authenticated. Machine exists in
+MachineTagValue.
+Postcondition Configuration is saved to
+model_schema.machine_configuration.
+Main Flow
+1. Analyst navigates to Configuration page.
+2. System displays machine status table.
+3. Analyst fills configuration form (name, machine,
+monitoring params, recipe params, description).
+4. System validates inputs.
+5. System saves configuration.
+6. System confirms success.
+Alternative Flow If configuration name already exists for the machine, system
+displays an error. If recipe parameters are not a subset of
+monitoring parameters, system displays a validation error.
+3.2.1.2 Real-Time Monitoring — Use Case Diagram
+FIGURE 3.2 – Real-Time Monitoring — Use Case Diagram
+Iteam-2025 Page 23
+CONCEPTION
+TABLE 3.2 – Use Case - Monitor Parameters
+Element Description
+Use Case Name Monitor Parameters
+Actor Operator (and Analyst)
+Description Operator views real-time parameter values compared
+against specification ranges.
+Precondition Configuration has been analyzed. Reference datasheet
+exists. Machine is active.
+Postcondition Operator sees live parameter values with status indicators.
+Main Flow
+1. Operator selects configuration from dropdown.
+2. System loads reference datasheet from latest analysis.
+3. System fetches live values from MachineTagValue.
+4. System compares each value against Min/Max specs.
+5. System displays parameter cards with color-coded
+status.
+6. Cards auto-refresh every 1 second.
+Alternative Flow If machine is in Standby (LineSpeed = 0), system
+displays Standby status. If parameters have no data, system
+shows "Waiting for value..." state. If parameters are out of
+range, system displays violation badges.
+3.2.1.3 Analysis Datasheet Generation — Use Case Diagram
+FIGURE 3.3 – Analysis Datasheet Generation — Use Case Diagram screenshot to be added
+Iteam-2025 Page 24
+CONCEPTION
+TABLE 3.3 – Use Case - Generate Datasheet
+Element Description
+Use Case Name Generate Datasheet
+Actor Analyst
+Description Analyst selects a machine, picks an analysis configuration,
+chooses production runs, and generates a statistical reference
+datasheet.
+Precondition Analyst is authenticated. Machine has production runs with
+data.
+Postcondition Reference datasheet is saved to
+parameter_reference_datasheet table. Analysis
+history is tracked in datasheet_runs.
+Main Flow
+1. Analyst navigates to Analysis page.
+2. System displays step-by-step workflow.
+3. Analyst selects an analysis configuration.
+4. System pre-fills machine and parameters.
+5. Analyst selects analysis mode (Production Run or
+Time Window).
+6. System loads production runs.
+7. Analyst selects runs with IsOk = 1 for sample
+collection.
+8. System collects up to 1,200 samples per parameter
+per run.
+9. System computes statistics (Min, Max, Mean,
+StdDev).
+10. System correlates with quality labels.
+11. System saves datasheet.
+Alternative Flow If ProductionRunQuality table has no matching records,
+samples are labeled IsOk = 0. If no OK runs exist, system
+prevents datasheet generation.
+Iteam-2025 Page 25
+CONCEPTION
+3.2.1.4 Mistral AI Root Cause Analysis — Use Case Diagram
+FIGURE 3.4 – Mistral AI Root Cause Analysis — Use Case Diagram
+Iteam-2025 Page 26
+CONCEPTION
+TABLE 3.4 – Use Case - Analyze Root Cause
+Element Description
+Use Case Name Analyze Root Cause
+Actor Operator (triggered automatically or manually)
+Description System sends out-of-spec parameter data to Mistral AI
+and receives natural-language root cause analysis with
+corrective actions.
+Precondition MISTRAL_API_KEY is configured. At least one parameter is
+out of specification range.
+Postcondition Operator views AI-generated analysis with root cause,
+immediate actions, and preventive measures.
+Main Flow
+1. System detects parameter out of spec OR
+operator clicks "Mistral RCA" button.
+2. System collects out-of-range parameter with value,
+min, max, and deviation info.
+3. System constructs prompt with machine context.
+4. System calls Mistral AI API.
+5. System displays generated analysis with root cause,
+corrective actions, and preventive recommendations.
+Alternative Flow If Mistral API is unavailable, system displays an error
+message. If no parameters are out of range, system notifies
+the operator.
+3.2.1.5 Class Diagram
+FIGURE 3.5 – Class Diagram — System Entities
+Iteam-2025 Page 27
+CONCEPTION
+3.2.2 Sequence Diagrams
+We employ sequence diagrams to demonstrate chronological interactions between system
+components. These visualizations precisely track how objects exchange messages during operations.
+Iteam-2025 Page 28
+CONCEPTION
+3.2.2.1 Authentication — Sequence Diagram
+This details the primary system interactions, including authentication.
+FIGURE 3.6 – Authentication — Sequence Diagram
+Step Description
+1 User enters User ID and password on Authentication page
+2 Authentication page calls authenticate_user() from
+auth_helpers.py
+3 auth_helpers.py queries model_schema.users table via
+SQLAlchemy
+4 System verifies password using PBKDF2-HMAC-SHA256 with
+stored salt
+5 On success, sign_in_user() creates HMAC-signed session
+token
+6 Session token is stored in st.session_state and synced to
+window.localStorage
+7 User is redirected to the requested page (or home page)
+TABLE 3.5 – Authentication Flow
+3.2.2.2 Machine Configuration — Sequence Diagram
+This details the primary system interactions, including machine configuration management.
+Iteam-2025 Page 29
+CONCEPTION
+FIGURE 3.7 – Machine Configuration — Sequence Diagram
+Step Description
+1 Analyst selects machine from dropdown
+2 Configuration page calls load_all_parameters_for_machine from
+db_helpers.py
+3 db_helpers.py queries MachineTagValue for distinct
+OpcNodeIds
+4 System displays available parameters
+5 Analyst selects monitoring parameters and designates recipe
+parameters
+6 Analyst clicks "Save Configuration"
+7 System calls add_machine_configuration() with
+JSON-serialized parameter lists
+8 System inserts into model_schema.machine_configuration
+9 System clears cache and confirms success
+TABLE 3.6 – Machine Configuration Flow
+3.2.2.3 Real-Time Monitoring — Sequence Diagram
+This details the primary system interactions, including real-time monitoring.
+Iteam-2025 Page 30
+CONCEPTION
+FIGURE 3.8 – Real-Time Monitoring — Sequence Diagram
+Step Description
+1 Operator selects a saved configuration
+2 Model page loads config from machine_configuration table
+3 System calls load_latest_analysis_results() to retrieve
+reference datasheet
+4 System calls get_machine_status_by_linespeed() to check
+LineSpeed-based status
+5 System starts 1-second auto-refresh
+6 Each second : load_current_machine_values() fetches latest
+values from MachineTagValue
+7 System compares each value against Min/Max from reference
+datasheet
+8 System renders parameter cards with color-coded status
+indicators
+9 Operator views real-time data with spec violation badges
+TABLE 3.7 – Real-Time Machine Monitoring Flow
+3.2.2.4 Datasheet Analysis — Sequence Diagram
+This details the primary system interactions, including datasheet analysis.
+Iteam-2025 Page 31
+CONCEPTION
+FIGURE 3.9 – Datasheet Analysis — Sequence Diagram
+Step Description
+1 Analyst selects machine and analysis configuration
+2 System pre-fills machine and parameters
+3 Analyst selects analysis mode
+4 System loads production runs from productionrun table
+5 Analyst selects runs with IsOk = 1 for sample collection
+6 Analyst clicks "Collect Samples & Generate Datasheet"
+7 System calls get_labeled_samples_from_runs() — up to 1,200 samples per
+parameter per run
+8 System labels samples using ProductionRunQuality.IsOk
+9 System calls calculate_recipe_parameter_statistics_from_samples()
+10 System saves results via save_recipe_datasheet() to
+parameter_reference_datasheet
+11 System displays generated datasheet with sample counts and quality correlation
+TABLE 3.8 – Recipe Datasheet Generation Flow
+3.2.2.5 Root Cause Analysis — Sequence Diagram
+This details the primary system interactions, including root cause analysis.
+Iteam-2025 Page 32
+CONCEPTION
+FIGURE 3.10 – Root Cause Analysis — Sequence Diagram
+Step Description
+1 System detects parameter out of spec OR Operator clicks
+"Mistral RCA" button
+2 System collects out-of-range parameter with current values and
+specification ranges
+3 System constructs a detailed prompt with machine context and
+parameter deviation data
+4 System calls Mistral AI API (via requests REST API)
+5 Mistral AI processes the prompt and returns natural-language
+analysis
+6 System displays : (a) Most likely root cause, (b) Immediate
+corrective actions, (c) Preventive measures
+7 Operator reviews the analysis and takes appropriate action
+TABLE 3.9 – AI-Based Root Cause Analysis Flow
+3.2.3 Activity Diagrams
+We use activity diagrams to model system workflows through actions, decisions, and parallel
+processes.
+Iteam-2025 Page 33
+CONCEPTION
+3.2.3.1 User Login — Activity Diagram
+FIGURE 3.11 – User Login Activity Diagram
+Iteam-2025 Page 34
+CONCEPTION
+Step Description
+1 User navigates to Authentication page
+2 System checks for existing session (query params, LocalStorage,
+session state)
+3 [Session exists] → User is redirected to target page
+4 [No session] → User sees Login form
+5 User enters User ID and password
+6 System validates credentials against database
+7 [Valid] → System creates session token and redirects to home
+page
+8 [Invalid] → System displays error message and user retries
+TABLE 3.10 – Authentication Session Flow
+3.2.3.2 User Registration — Activity Diagram
+FIGURE 3.12 – User Registration Activity Diagram
+Iteam-2025 Page 35
+CONCEPTION
+Step Description
+1 User navigates to Register tab
+2 User enters User ID and password
+3 System checks if User ID already exists
+4 [Exists with approved status] → System displays "User ID already
+exists" error
+5 [Exists with pending status] → System displays "pending
+registration" message
+6 [Exists with declined status] → System updates record with new
+password and resets to pending
+7 [New] → System generates random 16-byte salt
+8 System hashes password with PBKDF2-HMAC-SHA256
+(120,000 iterations)
+9 System inserts new user record into model_schema.users with
+role='operator' and ApprovalStatus='pending'
+10 User is informed that account is pending Analyst approval
+TABLE 3.11 – User Registration Flow
+Iteam-2025 Page 36
+CONCEPTION
+3.2.3.3 Machine Configuration — Activity Diagram
+FIGURE 3.13 – Machine Configuration Activity Diagram
+Iteam-2025 Page 37
+CONCEPTION
+Step Description
+1 Analyst navigates to Configuration page
+2 System loads all machines and their LineSpeed-based status
+3 Analyst selects a machine from the dropdown
+4 System loads all available parameters for that machine
+5 Analyst enters configuration name
+6 Analyst selects config type (realtime or analysis)
+7 Analyst selects monitoring parameters from the list
+8 Analyst selects recipe parameters (subset of monitoring
+parameters)
+9 System validates : recipe parameters subset of monitoring
+parameters
+10 [Invalid] → System displays error and analyst corrects input
+11 [Valid] → System saves configuration to database
+12 System clears cache and confirms success
+TABLE 3.12 – Configuration Creation Flow
+Iteam-2025 Page 38
+CONCEPTION
+3.2.3.4 Real-Time Monitoring — Activity Diagram
+FIGURE 3.14 – Real-Time Monitoring Activity Diagram
+Iteam-2025 Page 39
+CONCEPTION
+Step Description
+1 Operator selects a configuration from dropdown
+2 System loads reference datasheet from latest analysis results
+3 System checks machine LineSpeed-based status
+4 [Machine Standby] → Display standby message and keep
+checking status
+5 [Machine Inactive] → Display inactive status
+6 [Machine Active] → Start 1-second monitoring loop : fetch
+latest parameter values from MachineTagValue, compare against
+Min/Max specifications, render parameter cards with color-coded
+status, trigger violation badges and optional Mistral root cause
+analysis for out-of-spec parameters
+7 Wait 1 second and repeat monitoring loop
+TABLE 3.13 – Real-Time Monitoring Flow
+3.3 Conclusion
+To conclude, the UML diagrams provide a comprehensive design for Cable Manufacturing
+AI, clarifying interactions and structure with focus on real-time monitoring and AI integration.
+These models guide the implementation phase, detailed in the next chapter.
+Iteam-2025 Page 40
+Chapitre
+4
+Realization
+Iteam-2025 Page 41
+REALIZATION
+4.1 Introduction
+This chapter details the implementation of Cable Manufacturing AI, including code realization,
+UI design, and the integration with Mistral AI for root cause analysis.
+4.2 Implementation
+The project implements Cable Manufacturing AI using Streamlit for the multi-page frontend,
+SQL Server for the database, and Python for the backend logic. Key implementation details
+follow :
+— Frontend : Streamlit 1.x | Multi-page app with custom CSS theming and hidden sidebar
+— Backend : Python 3.11 | Modular package structure with auth_helpers.py and db_helpers.py
+— Database : SQL Server | dbo schema + model_schema for application tables
+— ORM : SQLAlchemy | Database connectivity with connection pooling and parameterized queries
+— AI : Mistral AI API | Root cause analysis via mistral-small-latest model
+— Automation : Papermill | Optional Jupyter notebook execution for analysis
+— Charts : Plotly | Interactive time-series visualizations with spec range overlays
+— Auth : PBKDF2-HMAC-SHA256 | Password hashing with 120,000 iterations and HMAC-signed session tokens
+— Caching : Streamlit @st.cache_data | Multi-tier TTL-based caching (10s–600s)
+— Containerization : Docker | Deployment via docker-compose with Microsoft ODBC Driver 18
+— CI/CD : GitHub Actions | Automated build and push to GHCR
+4.3 Database Tables
+Iteam-2025 Page 42
+REALIZATION
+FIGURE 4.1 – Home Page Interface Screenshot
+Summary of database tables :
+Table | Schema | Purpose
+------|--------|--------
+MachineTagValue | dbo | Time-series sensor events (core data source)
+productionrun | dbo | Production run metadata with time ranges
+ProductionRunQuality | dbo | Quality labels (IsOk = 1 or 0)
+tags_mapping | dbo | Machine-to-parameter mappings
+machine_configuration | model_schema | User-saved configurations with JSON parameter lists
+parameter_reference_datasheet | model_schema | Statistical reference ranges with recipe context
+analysis_results_[MACHINE] | model_schema | Per-machine parameter-level analysis history
+datasheet_runs | model_schema | Analysis run metadata tracking
+users | model_schema | Authentication data with page permissions
+4.4 Key Implementation Components
+4.4.1 Authentication System (auth_helpers.py — 970 lines)
+The authentication system implements a secure, stateless session management approach :
+- Password Hashing : PBKDF2-HMAC-SHA256 with 120,000 iterations and random 16-byte salt
+- Session Tokens : HMAC-SHA256 signed JSON payloads with expiration (7-day TTL) and nonce
+- Session Persistence : Three-layer recovery — st.session_state → URL query parameters
+→ window.localStorage
+Iteam-2025 Page 43
+REALIZATION
+- Automatic Login Flow : bootstrap_auth_page() automatically redirects authenticated users
+- Logout : Clears all session state, query params, and localStorage
+- New operator registrations require Analyst approval (ApprovalStatus = 'pending')
+- Default analyst account (admin/Coficab2025!) seeded on first run
+4.4.2 Database Helpers (db_helpers.py — ~2,700 lines)
+The database layer provides comprehensive data access with caching :
+- Caching Strategy : @st.cache_data decorators with configurable TTLs (10s for real-time, 60s for sensor traces,
+300s for configurations, 600s for analysis)
+- Machine Configuration CRUD : Full create, read, update, delete operations with JSON-serialized parameter lists
+- Analysis Results Storage : Per-machine tables (analysis_results_[MACHINE]) with RunSequence tracking
+for versioned analysis history
+- Production Run Queries : Time-window based parameter discovery, sample collection (up to 1,200 per run),
+quality-labeled sample extraction
+- Mistral AI Integration : call_mistral_ai() and analyze_parameter_anomaly() functions for AI-powered
+root cause analysis
+- Machine Status : Dual-mode status detection — LineSpeed-based working/standby/inactive with
+3-second freshness window
+- Sliding Window Sensor Traces : rebuild_step_signal() and detect_stable_points() for event-based
+to continuous signal conversion
+- Robust Path Detection : get_project_root() works both locally and in Docker
+4.4.3 Machine Configuration Page (configuration_page.py — 720 lines)
+The configuration page provides a complete CRUD interface :
+- Machine Status Display : Real-time LineSpeed-based Working/Standby/Inactive indicators with manual refresh
+- Add Configuration : Step-by-step form with machine selection (status icons), parameter browsing,
+monitoring/recipe designation, config type selection (realtime/analysis), and description
+- View & Edit : Searchable configuration list with expandable details, in-place
+editing with parameter validation
+- Delete : Confirmation workflow with visual safety check (checkbox required)
+- Validation : Recipe parameters must be a subset of monitoring parameters ;
+configuration names must be unique per machine
+- Summary metrics : Total/Active configurations, unique machines, realtime/analysis breakdown
+4.4.4 Real-Time Monitoring Page (model_page.py — ~2,000 lines)
+The most complex page handles real-time monitoring with Mistral AI root cause analysis :
+- Configuration Selector : Dropdown with machine status and configuration metadata
+Iteam-2025 Page 44
+REALIZATION
+- Reference Datasheet Display : Analyzed configuration statistics with Min/Max/Mean per parameter
+from the latest analysis results
+- Machine Status Card : Live status indicator with elapsed time counter (auto-updating)
+- Real-Time Fragments : Streamlit fragments with run_every=1 for monitoring data refresh
+- Parameter Cards : Color-coded containers showing current value, specification range,
+status badge, and last update time
+- Spec Violation Badges : Out-of-range parameters display a colored pill showing the gap distance
+and percentage of spec span
+- 3-Second Sliding Window Trace : Ultra-fast real-time
+charts using cached sliding-window approach (drop oldest second, add newest)
+- Full Timeline Trace : Complete historical view with snapshot capability at any moment
+- Parameter Overlay : Compare two parameters on the same chart with
+auto-scaling secondary Y-axis
+- Root Cause Analysis : Triggered manually via "Mistral RCA" button for out-of-spec parameters.
+Sends structured prompt to Mistral AI and displays root cause, immediate actions, and
+preventive recommendations
+4.4.5 Analysis Datasheet Page (analysis_page.py — 827 lines)
+The analysis page implements a recipe-aware datasheet generation workflow :
+- 5-Step Workflow : Select analysis configuration → Choose analysis mode → Load production runs →
+Select runs for sample collection (IsOk = 1 only) → Generate datasheet
+- Two Analysis Modes : Production Run-based (loads runs from productionrun table) or
+Time Window-based (user defines custom time range)
+- Quality Filtering : Only runs with IsOk = 1 are available for sample collection
+- Statistical Computation : Per-parameter Min, Max, Mean, StdDev, SampleCount,
+with QualityOkCount and QualityNotOkCount
+- Recipe Parameter Exclusion : Recipe parameters are automatically excluded from the datasheet
+- Analysis History : Previous datasheet runs browsable with detailed preview showing metrics
+(total samples, OK %, parameter count)
+- Sample Collection : Up to 1,200 samples per parameter per run from MachineTagValue with
+12-hour buffer around run time range. Limited to 150 parameters max
+4.4.6 Admin Panel (admin_page.py — 354 lines)
+The Admin Panel provides Analysts with user management and page-level permission
+control :
+- Pending Approvals Section : Lists all operator registrations with ApprovalStatus = 'pending'.
+Each entry shows the User ID, registration timestamp, and Approve/Decline
+buttons. Approved operators gain the ability to log in ; declined operators are automatically
+deactivated.
+- All Users Table : Displays a dataframe of all registered users with columns :
+Iteam-2025 Page 45
+REALIZATION
+User ID, Role, Approval Status, Active flag, Page Access summary, Created date, and Last
+Login date. The Page Access column shows a human-readable summary (e.g.,
+"All pages (analyst)", "Default (Realtime only)", or "Configuration, Analysis").
+- Manage Page Access Section : For each operator, an expandable section provides :
+  - A "Grant Full Access" checkbox — when checked, the operator can access all restricted pages
+  - Individual checkboxes for each restricted page from PAGE_REGISTRY (configuration_page
+and analysis_page)
+  - Checkboxes are automatically disabled when "Grant Full Access" is enabled
+  - A "Save Permissions" button that persists changes via set_user_page_permissions()
+  - Activate/Disable and Delete buttons for user lifecycle management
+- Access Control : The page calls ensure_page_authentication() and is_current_user_analyst()
+— non-Analyst users see an "Access denied" error and execution is stopped.
+4.4.7 Page Access Management System (auth_helpers.py — 970 lines)
+The authentication module implements page-level access control :
+- Page Registry (PAGE_REGISTRY) : A dictionary mapping internal page identifiers
+to human-readable labels. Currently tracks configuration_page (Configuration) and analysis_page
+(Analysis) as restrictable pages. Pages not in this registry (Home app.py, Realtime model_page)
+are default-accessible to all authenticated operators.
+- get_user_page_permissions(user_id) : Retrieves an operator's explicitly granted pages from
+the PagePermissions column. Returns None if no explicit permissions exist (default access only),
+or a list of allowed page identifiers.
+- set_user_page_permissions(user_id, permissions) : Persists page permissions. Setting permissions
+to None grants only default pages ; setting a list of page identifiers grants explicit access to
+those pages. Returns success status and a descriptive message.
+- check_page_access(page_id) : Enforces page-level authorization. Rules : (1) Analysts always
+have access; (2) Default pages (app.py, model_page) are always accessible ; (3) Restricted pages
+require the operator to have an explicit permission entry ; (4) NULL PagePermissions means
+only default pages are accessible.
+- ensure_page_authentication(current_page_path) : Extended to perform page-level access checks
+after authentication using _PAGE_PATH_MAP to resolve page paths to identifiers. Blocked users
+see an access denied message and cannot proceed past the page.
+- render_nav_bar() : Dynamically filters navigation links based on page permissions
+- New operator registrations are created with Role = 'operator' and ApprovalStatus = 'pending',
+requiring Analyst approval before the first login.
+4.5 User Interface
+We designed an intuitive UI with a learning curve of less than 10 minutes. Key interfaces
+include :
+Iteam-2025 Page 46
+REALIZATION
+4.5.1 Home Page Interface Screenshot
+The home page displays a dashboard with : - Animated gradient background with floating
+Coficab logo watermark - Hero section with "Cable Manufacturing AI" title and role badge -
+Interactive three-step workflow (Configure → Analyze → Monitor) with expandable details -
+Technology credits in footer
+FIGURE 4.2 – Home Page Interface Screenshot
+4.5.2 Authentication Page Interface Screenshot
+The authentication page features : - Secure login and registration tabs - PBKDF2-based
+password hashing - Automatic session recovery from browser LocalStorage - COFICAB-themed
+design with company logo - User registration with pending-approval workflow
+Iteam-2025 Page 47
+REALIZATION
+FIGURE 4.3 – Authentication Page Interface Screenshot
+4.5.3 Configuration Page Interface Screenshot
+The configuration page provides : - Machine status table with LineSpeed-based Working/Standby/Inactive
+indicators - Three-tab interface : Add Configuration, View & Edit, Delete - Machine selection
+with status icons (green = Working, yellow = Standby, red = Inactive) - Parameter multi-select with full
+OPC NodeId display - Recipe parameter designation (subset of monitoring parameters) -
+Config type selection (realtime vs analysis) - In-line editing with validation - Summary metrics
+at page bottom
+FIGURE 4.4 – Configuration Page Interface Screenshot
+Iteam-2025 Page 48
+REALIZATION
+4.5.4 Real-Time Monitoring Interface Screenshot
+The real-time monitoring page features : - Configuration selector with metadata display -
+Machine status card with elapsed time counter - Reference datasheet with specification ranges -
+Monitoring parameter cards with color-coded status (value, range, last update) - Spec violation
+badges for out-of-range parameters - 3-second sliding window traceability chart (real-time) -
+Full timeline traceability chart (historical snapshot) - Parameter overlay comparison with
+secondary Y-axis - Mistral RCA button and analysis dialog
+FIGURE 4.5 – Real-Time Monitoring Interface Screenshot
+4.5.5 Analysis Datasheet Interface Screenshot
+The analysis page provides : - Step-by-step guided workflow with session state persistence -
+Configuration pre-selection with machine and parameter summary - Production run browser
+with quality filtering (IsOk = 1 only) - Time window analysis mode with date range picker -
+Sample run multi-select with "Select All" option - Generated datasheet with statistical summaries
+and quality counts - Previous analysis history browser with run metrics
+Iteam-2025 Page 49
+REALIZATION
+FIGURE 4.6 – Analysis Datasheet Interface Screenshot
+4.5.6 Traceability Chart Interface Screenshot
+Traceability charts feature : - Real-time 3-second sliding window (auto-refreshing) -
+Full historical timeline (static snapshot with snapshot button) - Specification range visualization
+(green zone = normal, red zones = out of spec) - Target/mean line overlay - Parameter comparison
+overlay with secondary Y-axis for different scales - Summary metrics (readings, min, mean, max,
+in-spec percentage)
+FIGURE 4.7 – Traceability Chart Interface Screenshot
+Iteam-2025 Page 50
+REALIZATION
+4.5.7 Mistral AI Root Cause Analysis Screenshot
+The Mistral AI integration provides : - Manual trigger via "Mistral RCA" button when
+parameter is out of spec - Parameters within range show "Parameter within acceptable range" -
+Structured output : (1) Most likely root cause, (2) Immediate corrective actions, (3) Preventive
+measures - Context-aware prompting with machine code, parameter details, and deviation metrics
+FIGURE 4.8 – Mistral AI Root Cause Analysis Screenshot
+4.5.8 Admin Panel Interface Screenshot
+The Admin Panel interface features : - COFICAB-themed header : Navy gradient hero
+section with "ADMIN PANEL" eyebrow label and "User Management" title - Pending
+Approvals Section : Lists operator registrations awaiting approval with User ID, registration
+timestamp, and Approve/Decline action buttons. Shows an info message when no pending
+registrations exist. - All Users Table : A full-width dataframe displaying all registered
+users with columns for User ID, Role, Approval Status, Active flag, Page Access summary,
+Creation date, and Last Login. The Page Access column shows a readable summary (e.g.,
+"All pages (analyst)", "Default (Realtime only)", "Configuration, Analysis"). - Manage
+Page Access Section : Expandable panels for each operator containing :
+- User metadata (User ID, Status, Active flag)
+- "Grant Full Access" checkbox — enables all pages for the operator
+- Individual page checkboxes for Configuration and Analysis pages (disabled
+when full access is granted)
+- "Save Permissions" button with success/error feedback
+- Activate/Disable and Delete buttons per user
+- Navigation : The top navigation bar dynamically shows the "Admin" link only for Analyst
+users. All navigation links are filtered by check_page_access().
+Iteam-2025 Page 51
+REALIZATION
+FIGURE 4.9 – Admin Panel Interface Screenshot
+4.6 Deployment and Monitoring
+4.6.1 Introduction
+Cable Manufacturing AI is deployed using Docker containerization with automated CI/CD
+pipeline via GitHub Actions to GitHub Container Registry (GHCR).
+4.6.2 Docker Containerization
+The application is packaged in a Docker image based on python:3.11-slim :
+- System dependencies : curl, gnupg, unixodbc, unixodbc-dev for Microsoft ODBC Driver 18
+- Microsoft ODBC Driver 18 installed from Microsoft's Debian 12 repository
+- Python dependencies installed from requirements.txt
+- Healthcheck : python -c "import sqlalchemy; print('OK')" every 30 seconds
+- Port 8501 exposed with Streamlit binding to 0.0.0.0
+Docker Compose configuration :
+- Single service cable-ai with build context ./cable_maintenance_ai
+- Environment variables loaded from .env file (DB_HOST, DB_PORT, DB_USER, DB_PASSWORD,
+DB_NAME, MISTRAL_API_KEY)
+- Volume mount for development hot-reload (./cable_maintenance_ai:/app)
+- Resource limits : 2 CPU cores, 2GB memory
+- Custom bridge network cable-ai-network
+- Restart policy : unless-stopped
+4.6.3 CI/CD Pipeline
+GitHub Actions workflow (docker-build-push.yml) automates deployment :
+Trigger conditions :
+- Push to main branch affecting cable_maintenance_ai/** or workflow/config files
+- Pull request to main
+- Manual workflow_dispatch
+Iteam-2025 Page 52
+REALIZATION
+Build Job :
+1. Checkout code (actions/checkout@v4)
+2. Set up Docker Buildx (docker/setup-buildx-action@v4)
+3. Login to GitHub Container Registry (docker/login-action@v4) — push events only
+4. Extract Docker metadata with tags : latest, SHA-based, branch-based
+(docker/metadata-action@v6)
+5. Build and push to ghcr.io/abdelazizmosbahi/cable-maintenance-ai with GHA cache
+6. Publish build summary
+Test Job (runs on non-main-push events) :
+1. Build test image
+2. Run Python import verification for all critical dependencies
+4.6.4 Configuration
+The system uses environment variables for configuration :
+Variable Description
+DB_HOST SQL Server hostname
+DB_PORT SQL Server port (default: 1433)
+DB_USER Database username
+DB_PASSWORD Database password
+DB_NAME Database name
+MISTRAL_API_KEY Mistral AI API key
+MISTRAL_MODEL Mistral model name (default: mistral-small-latest)
+AUTH_SESSION_SECRET HMAC signing secret for session tokens
+AUTH_SESSION_TTL_SECONDS Session TTL (default: 604800 = 7 days)
+TABLE 4.1 – Environment Variables
+4.6.5 Monitoring
+The application includes built-in monitoring capabilities :
+- Streamlit Caching : Multi-tier cache with configurable TTLs (10s–600s)
+- Database Diagnostics : Connection testing and error reporting with graceful degradation
+- Print Logging : Server-side logging for troubleshooting data loading issues
+- Healthcheck : Docker-level health monitoring every 30 seconds with 3 retries
+- Machine Status : Built-in LineSpeed-based status monitoring with 3-second freshness window
+4.6.6 Conclusion
+The realization phase delivers a fully integrated Cable Manufacturing AI platform, with
+Streamlit providing a responsive multi-page interface, SQL Server ensuring reliable data persistence,
+and Mistral AI adding intelligent root cause analysis capabilities. The modular architecture —
+comprising configuration management, real-time monitoring, and analysis/datasheet generation
+— provides COFICAB with a powerful tool for data-driven quality management in cable manufacturing.
+Iteam-2025 Page 53
+General Conclusion and Future Perspectives
+To recapitulate the development of Cable Manufacturing AI, a platform designed to unify
+machine configuration management, real-time parameter monitoring, and recipe-aware datasheet
+analysis within a single Streamlit application. The project addresses the fragmentation of
+cable manufacturing quality monitoring by integrating live OPC UA sensor data with
+natural-language root cause analysis through Mistral AI.
+Our development approach followed a Kanban methodology, enabling iterative task management
+and flexibility, with major milestones tracked between January and May 2025.
+- Chapter I introduced the project, analyzed the operational challenges at COFICAB, outlined
+the proposed solution, presented the host company (COFICAB / ELLOUMI Group), and detailed
+the technology stack and system architecture.
+- Chapter II specified functional and non-functional requirements, defined two user profiles
+(Operator and Analyst), modeled system interactions through use case diagrams, and presented
+the Kanban task board with bi-weekly snapshots throughout the project lifecycle.
+- Chapter III focused on system design through UML diagrams — use case diagrams with
+detailed textual descriptions, class diagrams covering system entities,
+sequence diagrams for key workflows (authentication, configuration, monitoring, analysis, root
+cause analysis), and activity diagrams for critical processes.
+- Chapter IV covered implementation, UI design, and deployment of the platform. The
+implementation includes five Streamlit pages (Authentication, Home, Configuration, Real-Time
+Monitoring, Analysis, and Admin Panel), ~2,700 lines of database helper code, a 970-line
+authentication and authorization module with role-based page-level access control, Docker
+containerization with GitHub Actions CI/CD, and Mistral
+AI integration for intelligent root cause analysis.
+Iteam-2025 Page 54
+GENERAL CONCLUSION AND FUTURE PERSPECTIVES
+Results demonstrate a robust, scalable platform capable of : - Monitoring multiple cable
+production machines simultaneously in real time with 1-second refresh - Detecting out-of-spec parameter behavior
+with immediate visual violation badges - Generating comprehensive reference datasheets from historical production
+runs with quality correlation - Providing AI-powered root cause analysis with actionable corrective recommendations -
+Maintaining full audit trails via run-level tracking and analysis versioning - Enforcing role-based
+page-level access control with default and restricted pages - Managing operator registrations
+through an approval workflow - Configuring per-operator page permissions via a checkbox-based
+Admin Panel interface - Deploying via Docker with automated CI/CD to GitHub Container Registry
+Challenges encountered during development included : - Real-time chart performance optimization
+(resolved with sliding-window caching approach) - Mistral AI API integration and prompt engineering
+for manufacturing-specific context - Streamlit fragment auto-refresh coordination between
+monitoring data and card rendering - Cross-page session persistence across Streamlit's single-page
+navigation model - Robust path detection working both locally and in Docker
+Future perspectives involve : - Expanding the system with ML models for time-series prediction
+and predictive maintenance - Implementing automated retraining pipelines based
+on new production data - Adding multi-language support for international deployment - Integrating
+real-time alerting (email, SMS, dashboard notifications) - Extending Mistral AI integration for
+predictive maintenance recommendations - Migrating to Kubernetes for
+improved scalability - Extending the permission system with granular feature-level (rather than
+page-level) access control - Implementing role-based audit logging for all admin actions -
+Adding self-service password reset and account recovery workflows
+We believe that Cable Manufacturing AI provides a strong foundation for data-driven quality
+management in cable production and offers considerable potential for future enhancements.
+The platform successfully transforms raw OPC UA sensor data into actionable quality insights,
+directly addressing COFICAB's need for proactive, AI-enhanced manufacturing quality monitoring.
+Iteam-2025 Page 55
