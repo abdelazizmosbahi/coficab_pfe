@@ -1,4 +1,4 @@
-"""Admin page for Analyst user management — approve/decline operators."""
+"""Admin page for user management — approve/decline users."""
 
 from __future__ import annotations
 
@@ -13,15 +13,15 @@ from auth_helpers import (  # noqa: E402
     COFICAB_LOGO_B64,
     PAGE_REGISTRY,
     ensure_page_authentication,
-    get_pending_operators,
+    get_pending_users,
     get_all_users,
-    approve_operator,
-    decline_operator,
+    approve_user,
+    decline_user,
     get_user_page_permissions,
     set_user_page_permissions,
     set_user_active_status,
     delete_user,
-    is_current_user_analyst,
+    is_current_user_admin,
     render_nav_bar,
 )
 
@@ -175,8 +175,8 @@ st.set_page_config(
 
 ensure_page_authentication("pages/admin_page.py")
 
-if not is_current_user_analyst():
-    st.error("Access denied. Only Analysts can view this page.")
+if not is_current_user_admin():
+    st.error("Access denied. Only admins can view this page.")
     st.stop()
 
 apply_coficab_theme()
@@ -214,12 +214,12 @@ if st.session_state.pop("user_approved_toast", False):
 if st.session_state.pop("user_declined_toast", False):
     st.toast("User declined!", icon="⚠️")
 
-pending = get_pending_operators()
+pending = get_pending_users()
 
 if not pending:
-    st.info("No pending operator registrations.")
+    st.info("No pending user registrations.")
 else:
-    st.success(f"{len(pending)} operator(s) awaiting approval.")
+    st.success(f"{len(pending)} user(s) awaiting approval.")
 
     for op in pending:
         uid = op["user_id"]
@@ -233,7 +233,7 @@ else:
             st.caption(f"Registered: {created_str}")
         with col3:
             if st.button("✅ Approve", key=f"approve_{uid}"):
-                ok, msg = approve_operator(uid)
+                ok, msg = approve_user(uid)
                 if ok:
                     st.session_state["user_approved_toast"] = True
                     st.rerun()
@@ -241,7 +241,7 @@ else:
                     st.error(msg)
         with col4:
             if st.button("❌ Decline", key=f"decline_{uid}"):
-                ok, msg = decline_operator(uid)
+                ok, msg = decline_user(uid)
                 if ok:
                     st.session_state["user_declined_toast"] = True
                     st.rerun()
@@ -257,8 +257,8 @@ if all_users:
     user_rows = []
     for u in all_users:
         perms = get_user_page_permissions(u["user_id"])
-        if u["role"] == "analyst":
-            page_access = "All pages (analyst)"
+        if u["role"] == "admin":
+            page_access = "All pages (admin)"
         elif perms is None:
             page_access = "Default (Realtime only)"
         elif len(perms) == len(PAGE_REGISTRY) and all(p in perms for p in PAGE_REGISTRY):
@@ -285,7 +285,7 @@ if all_users:
 
     st.divider()
     st.markdown('<p class="cofi-section-title">🔐 Manage Page Access</p>', unsafe_allow_html=True)
-    st.caption("Configure which pages each operator can access. Realtime is always accessible by default.")
+    st.caption("Configure which pages each user can access. Realtime is always accessible by default.")
 
     if st.session_state.pop("perm_saved_toast", False):
         st.toast("Permissions saved successfully!", icon="✅")
@@ -297,7 +297,7 @@ if all_users:
         st.toast("User deleted successfully!", icon="🗑️")
 
     for u in all_users:
-        if u["role"] != "operator":
+        if u["role"] != "user":
             continue
         uid = u["user_id"]
         current_perms = get_user_page_permissions(uid)

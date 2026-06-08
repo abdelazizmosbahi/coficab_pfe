@@ -32,14 +32,14 @@ AUTH_SECRET = (
 )
 
 # ── Page Access Management ───────────────────────────────────────────────────
-# Pages that require explicit permission for operators (shown as checkboxes).
+# Pages that require explicit permission for users (shown as checkboxes).
 # Pages NOT in this list (app.py, model_page) are accessible by default.
 PAGE_REGISTRY: dict[str, str] = {
     "configuration_page": "Configuration (machine config)",
     "analysis_page": "Analysis (datasheets)",
 }
 
-# Page identifiers always accessible to any authenticated operator.
+# Page identifiers always accessible to any authenticated user.
 _DEFAULT_PAGES: set[str] = {"app.py", "model_page"}
 
 # Maps page paths passed to ensure_page_authentication() to page identifiers.
@@ -321,7 +321,7 @@ def initialize_users_table() -> None:
                         [UserId] NVARCHAR(100) NOT NULL PRIMARY KEY,
                         [PasswordHash] NVARCHAR(255) NOT NULL,
                         [PasswordSalt] NVARCHAR(255) NOT NULL,
-                        [Role] NVARCHAR(20) NOT NULL DEFAULT 'operator',
+                        [Role] NVARCHAR(20) NOT NULL DEFAULT 'user',
                         [ApprovalStatus] NVARCHAR(20) NOT NULL DEFAULT 'approved',
                         [CreatedAt] DATETIME NOT NULL DEFAULT GETDATE(),
                         [LastLoginAt] DATETIME NULL,
@@ -343,7 +343,7 @@ def initialize_users_table() -> None:
                               AND TABLE_NAME = 'users'
                               AND COLUMN_NAME = 'Role'
                         )
-                        ALTER TABLE [model_schema].[users] ADD [Role] NVARCHAR(20) NOT NULL DEFAULT 'operator'
+                        ALTER TABLE [model_schema].[users] ADD [Role] NVARCHAR(20) NOT NULL DEFAULT 'user'
                         """
                     )
                 )
@@ -400,31 +400,31 @@ def initialize_users_table() -> None:
                 except Exception:
                     pass
 
-            # Seed default analyst account if no analyst exists
+            # Seed default admin account if no admin exists
             try:
-                existing_analyst = connection.execute(
+                existing_admin = connection.execute(
                     text(
-                        "SELECT COUNT(*) as cnt FROM [model_schema].[users] WHERE [Role] = 'analyst'"
+                        "SELECT COUNT(*) as cnt FROM [model_schema].[users] WHERE [Role] = 'admin'"
                     )
                 ).fetchone()
-                analyst_count = existing_analyst[0] if existing_analyst else 0
-                if analyst_count == 0:
+                admin_count = existing_admin[0] if existing_admin else 0
+                if admin_count == 0:
                     default_password = os.getenv(
                         "DEFAULT_ANALYST_PASSWORD", "Coficab2025!"
                     )
-                    analyst_salt, analyst_hash = hash_password(default_password)
+                    admin_salt, admin_hash = hash_password(default_password)
                     connection.execute(
                         text(
                             """
                             INSERT INTO [model_schema].[users]
                             (UserId, PasswordHash, PasswordSalt, Role, ApprovalStatus, IsActive)
-                            VALUES (:uid, :pwd_hash, :pwd_salt, 'analyst', 'approved', 1)
+                            VALUES (:uid, :pwd_hash, :pwd_salt, 'admin', 'approved', 1)
                             """
                         ),
                         {
                             "uid": "admin",
-                            "pwd_hash": analyst_hash,
-                            "pwd_salt": analyst_salt,
+                            "pwd_hash": admin_hash,
+                            "pwd_salt": admin_salt,
                         },
                     )
                     connection.commit()
@@ -486,7 +486,7 @@ def register_user(user_id: str, password: str) -> tuple[bool, str]:
                         UPDATE [model_schema].[users]
                         SET PasswordHash = :pwd_hash,
                             PasswordSalt = :pwd_salt,
-                            Role = 'operator',
+                            Role = 'user',
                             ApprovalStatus = 'pending',
                             IsActive = 1,
                             PagePermissions = NULL,
@@ -502,7 +502,7 @@ def register_user(user_id: str, password: str) -> tuple[bool, str]:
                     },
                 )
                 connection.commit()
-                return True, "Registration submitted! Your account is pending approval by an Analyst."
+                return True, "Registration submitted! Your account is pending approval by an admin."
 
             password_salt, password_hash = hash_password(password)
             connection.execute(
@@ -510,7 +510,7 @@ def register_user(user_id: str, password: str) -> tuple[bool, str]:
                     """
                     INSERT INTO [model_schema].[users]
                     (UserId, PasswordHash, PasswordSalt, Role, ApprovalStatus, IsActive, PagePermissions)
-                    VALUES (:user_id, :password_hash, :password_salt, 'operator', 'pending', 1, NULL)
+                    VALUES (:user_id, :password_hash, :password_salt, 'user', 'pending', 1, NULL)
                     """
                 ),
                 {
@@ -520,7 +520,7 @@ def register_user(user_id: str, password: str) -> tuple[bool, str]:
                 },
             )
             connection.commit()
-        return True, "Registration submitted! Your account is pending approval by an Analyst."
+        return True, "Registration submitted! Your account is pending approval by an admin."
     except Exception as exc:
         return False, f"Registration failed: {exc}"
 
@@ -553,12 +553,12 @@ def authenticate_user(user_id: str, password: str) -> tuple[bool, str, str | Non
             if not verify_password(password, row["PasswordSalt"], row["PasswordHash"]):
                 return False, "Invalid user ID or password.", None
 
-            role = row.get("Role", "operator")
+            role = row.get("Role", "user")
             approval_status = row.get("ApprovalStatus", "approved")
 
-            if role == "operator" and approval_status == "pending":
-                return False, "Your account is pending approval by an Analyst.", None
-            if role == "operator" and approval_status == "declined":
+            if role == "user" and approval_status == "pending":
+                return False, "Your account is pending approval by an admin.", None
+            if role == "user" and approval_status == "declined":
                 return False, "Your account has been declined. You may register again.", None
 
             connection.execute(
@@ -631,7 +631,7 @@ def ensure_page_authentication(current_page_path: str, auth_page_path: str = AUT
         # Page-level access check
         page_id = _PAGE_PATH_MAP.get(current_page_path, current_page_path)
         if not check_page_access(page_id):
-            st.error("⛔ **Access denied.** You do not have permission to view this page. Contact an Analyst if you need access.")
+            st.error("⛔ **Access denied.** You do not have permission to view this page. Contact an admin if you need access.")
             st.stop()
             return False
 
@@ -677,8 +677,8 @@ def bootstrap_auth_page() -> bool:
 
 # ── Admin / User Management Helpers ────────────────────────────────────────────
 
-def get_pending_operators() -> list[dict]:
-    """Return list of operator registrations pending approval."""
+def get_pending_users() -> list[dict]:
+    """Return list of user registrations pending approval."""
     try:
         with get_engine().connect() as c:
             rows = c.execute(
@@ -686,7 +686,7 @@ def get_pending_operators() -> list[dict]:
                     """
                     SELECT UserId, CreatedAt
                     FROM [model_schema].[users]
-                    WHERE Role = 'operator' AND ApprovalStatus = 'pending'
+                    WHERE Role = 'user' AND ApprovalStatus = 'pending'
                     ORDER BY CreatedAt DESC
                     """
                 )
@@ -727,38 +727,38 @@ def get_all_users() -> list[dict]:
         return []
 
 
-def approve_operator(user_id: str) -> tuple[bool, str]:
-    """Approve a pending operator registration."""
+def approve_user(user_id: str) -> tuple[bool, str]:
+    """Approve a pending user registration."""
     try:
         with get_engine().begin() as c:
             result = c.execute(
                 text(
                     "UPDATE [model_schema].[users] SET ApprovalStatus = 'approved' "
-                    "WHERE UserId = :uid AND Role = 'operator' AND ApprovalStatus = 'pending'"
+                    "WHERE UserId = :uid AND Role = 'user' AND ApprovalStatus = 'pending'"
                 ),
                 {"uid": user_id},
             )
             if result.rowcount == 0:
-                return False, f"No pending operator found with User ID '{user_id}'."
-        return True, f"Operator '{user_id}' approved successfully."
+                return False, f"No pending user found with User ID '{user_id}'."
+        return True, f"User '{user_id}' approved successfully."
     except Exception as e:
         return False, f"Error approving user: {e}"
 
 
-def decline_operator(user_id: str) -> tuple[bool, str]:
-    """Decline a pending operator registration."""
+def decline_user(user_id: str) -> tuple[bool, str]:
+    """Decline a pending user registration."""
     try:
         with get_engine().begin() as c:
             result = c.execute(
                 text(
                     "UPDATE [model_schema].[users] SET ApprovalStatus = 'declined', IsActive = 0 "
-                    "WHERE UserId = :uid AND Role = 'operator' AND ApprovalStatus = 'pending'"
+                    "WHERE UserId = :uid AND Role = 'user' AND ApprovalStatus = 'pending'"
                 ),
                 {"uid": user_id},
             )
             if result.rowcount == 0:
-                return False, f"No pending operator found with User ID '{user_id}'."
-        return True, f"Operator '{user_id}' declined."
+                return False, f"No pending user found with User ID '{user_id}'."
+        return True, f"User '{user_id}' declined."
     except Exception as e:
         return False, f"Error declining user: {e}"
 
@@ -802,16 +802,16 @@ def get_current_user_role() -> str:
     return st.session_state.get("auth_role", "")
 
 
-def is_current_user_analyst() -> bool:
-    """Check if the currently logged-in user is an Analyst."""
-    return st.session_state.get("auth_role", "") == "analyst"
+def is_current_user_admin() -> bool:
+    """Check if the currently logged-in user is an admin."""
+    return st.session_state.get("auth_role", "") == "admin"
 
 
 # ── Page Access Management ───────────────────────────────────────────────────
 
 def get_user_page_permissions(user_id: str) -> list[str] | None:
     """
-    Retrieve the list of explicitly granted pages for an operator.
+    Retrieve the list of explicitly granted pages for a user.
     
     Returns:
         list[str] | None:
@@ -839,10 +839,10 @@ def get_user_page_permissions(user_id: str) -> list[str] | None:
 
 def set_user_page_permissions(user_id: str, permissions: list[str] | None) -> tuple[bool, str]:
     """
-    Save explicit page permissions for an operator.
+    Save explicit page permissions for a user.
     
     Args:
-        user_id: The operator's UserId.
+        user_id: The user's UserId.
         permissions: 
           - None  →  grant only default pages (Home, Realtime)
           - [...] →  list of page identifiers to explicitly allow
@@ -871,16 +871,16 @@ def check_page_access(page_id: str) -> bool:
     Check whether the currently authenticated user can access the given page.
     
     Rules:
-      - Analysts always have access.
-      - Default pages (Home, Realtime) are always accessible to operators.
-      - For restricted pages, the operator must have an explicit permission entry.
+      - Admins always have access.
+      - Default pages (Home, Realtime) are always accessible to users.
+      - For restricted pages, the user must have an explicit permission entry.
       - If PagePermissions is NULL → only default pages (no restricted access).
     
     Returns:
         True if access is allowed, False otherwise.
     """
     role = get_current_user_role()
-    if role == "analyst":
+    if role == "admin":
         return True
 
     if page_id in _DEFAULT_PAGES:
@@ -936,7 +936,7 @@ COFICAB_NAV_STYLE = """
 def render_nav_bar(current_page: str = "app.py") -> None:
     """Render the shared navigation bar. Filters links based on page permissions."""
 
-    is_analyst = is_current_user_analyst()
+    is_admin = is_current_user_admin()
 
     nav_links = [
         ("Home", "app.py"),
@@ -945,7 +945,7 @@ def render_nav_bar(current_page: str = "app.py") -> None:
         ("Analysis", "analysis_page"),
     ]
 
-    if is_analyst:
+    if is_admin:
         nav_links.append(("Admin", "admin_page"))
 
     st.markdown(COFICAB_NAV_STYLE, unsafe_allow_html=True)
