@@ -34,6 +34,7 @@ OPC_NAMESPACE_URI=http://examples.freeopcua.github.io
 ```bash
 cd app
 streamlit run app.py
+streamlit run app.py --server.address 0.0.0.0 --server.port 8501
 ```
 
 ## 4. Optional: verify OPC UA connectivity
