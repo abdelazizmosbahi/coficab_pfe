@@ -27,7 +27,7 @@ from db_helpers import initialize_machine_configuration_table  # noqa: E402
 
 
 st.set_page_config(
-    page_title="Cable Manufacturing AI",
+    page_title="COFAI",
     page_icon="🏭",
     layout="wide",
     initial_sidebar_state="collapsed"
@@ -304,7 +304,7 @@ def display_home():
         </div>
 
         <div class="hero-section">
-            <div class="hero-title">Cable Manufacturing AI</div>
+            <div class="hero-title">COFAI</div>
             <div class="hero-subtitle">Configuration-based production monitoring &middot; Live OPC traceability &middot; Analysis-based production datasheet</div>
             <div class="hero-badge">🔒 {role} · {datetime.now().strftime('%B %Y')}</div>
         </div>
@@ -370,7 +370,7 @@ def display_home():
         <div class="footer-section">
             <hr class="footer-divider">
             <div class="footer-text">
-                Cable Manufacturing AI &middot; Streamlit &middot; Mistral AI
+                COFAI &middot; Streamlit &middot; Mistral AI
             </div>
         </div>
         """,
