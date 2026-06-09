@@ -1643,7 +1643,7 @@ hero_html = f"""
         <h1 class="cofi-hero-title">Configuration-Based Real-Time Monitoring</h1>
         <p>Run analysis on a saved configuration, then track live values against the reference datasheet.</p>
     </div>
-    <img class="cofi-hero__logo" src="data:image/png;base64,{COFICAB_LOGO_B64}" alt="Coficab logo" />
+    <img class="cofi-hero__logo" src="data:image/png;base64,{COFICAB_LOGO_B64}" alt="Cofai logo" />
 </div>
 """
 st.markdown(hero_html, unsafe_allow_html=True)

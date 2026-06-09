@@ -203,7 +203,7 @@ hero_inner = """
         <h1>User Management</h1>
     </div>
 """
-hero_html = f'<div class="cofi-hero">{hero_inner}<img class="cofi-hero__logo" src="data:image/png;base64,{COFICAB_LOGO_B64}" alt="Coficab logo" /></div>'
+hero_html = f'<div class="cofi-hero">{hero_inner}<img class="cofi-hero__logo" src="data:image/png;base64,{COFICAB_LOGO_B64}" alt="Cofai logo" /></div>'
 st.markdown(hero_html, unsafe_allow_html=True)
 
 # ── Section 1: Pending Approvals ─────────────────────────────────────────────

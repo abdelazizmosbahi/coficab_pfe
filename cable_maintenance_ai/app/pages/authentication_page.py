@@ -188,7 +188,7 @@ apply_auth_theme()
 if bootstrap_auth_page():
     st.stop()
 
-logo_path = os.path.join(ROOT_DIR, "coficab_logo.png")
+logo_path = os.path.join(ROOT_DIR, "cofai_logo_transparent.png")
 logo_data_uri = ""
 if os.path.exists(logo_path):
     with open(logo_path, "rb") as logo_file:
@@ -196,7 +196,7 @@ if os.path.exists(logo_path):
         logo_data_uri = f"data:image/png;base64,{logo_b64}"
 
 shell_logo_html = (
-    f'<img src="{logo_data_uri}" alt="Coficab logo" style="height:52px; width:auto; filter: drop-shadow(0 6px 14px rgba(7, 18, 30, 0.35));" />'
+    f'<img src="{logo_data_uri}" alt="Cofai logo" style="height:52px; width:auto; filter: drop-shadow(0 6px 14px rgba(7, 18, 30, 0.35));" />'
     if logo_data_uri
     else ""
 )
