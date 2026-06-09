@@ -505,6 +505,22 @@ def apply_coficab_theme():
             color: #ffffff !important;
             -webkit-text-fill-color: #ffffff !important;
         }
+        .cofi-close-icon-btn button {
+            background: transparent !important;
+            border: none !important;
+            box-shadow: none !important;
+            padding: 0 4px !important;
+            font-size: 1.2rem !important;
+            color: var(--cof-slate) !important;
+            min-width: unset !important;
+            width: 28px !important;
+            height: 28px !important;
+            line-height: 28px !important;
+        }
+        .cofi-close-icon-btn button:hover {
+            color: var(--cof-orange) !important;
+            transform: scale(1.15);
+        }
         </style>
         """,
         unsafe_allow_html=True,
@@ -1648,210 +1664,6 @@ hero_html = f"""
 """
 st.markdown(hero_html, unsafe_allow_html=True)
 
-# ════════════════════════════════════════════════════════════════════════════════
-# EARLY CHECK: If fullscreen view is requested, show ONLY that and stop everything else
-# ════════════════════════════════════════════════════════════════════════════════
-fp_to_show = st.session_state.get("fullscreen_param")
-rca_to_show = st.session_state.get("fullscreen_rca_param")
-show_fullscreen = bool(fp_to_show or rca_to_show)
-
-if show_fullscreen:
-    # Load config data for fullscreen view
-    configs_df = load_machine_configurations(config_type="realtime")
-    selected_config_id = st.session_state.get("selected_config")
-    if selected_config_id and not configs_df.empty:
-        config_row = configs_df[configs_df["ConfigurationId"] == selected_config_id].iloc[0]
-        machine_code = config_row["MachineCode"]
-        config_id = config_row["ConfigurationId"]
-        # Load latest analysis for the machine (independent of configuration)
-        analysis_results = load_latest_analysis_results(machine_code=machine_code)
-        reference_df = _cached_load_reference_df(machine_code, config_id, analysis_results)
-        
-        # ════════════════════════════════════════════════════════════════════════════
-        # FULLSCREEN TRACEABILITY - Completely Independent View
-        # ════════════════════════════════════════════════════════════════════════════
-        if fp_to_show:
-            st.markdown("---")
-            col1, _ = st.columns([1, 4])
-            with col1:
-                if st.button("⬅️ Back to Dashboard", use_container_width=True):
-                    st.session_state.pop("fullscreen_param", None)
-                    st.session_state.pop("fullscreen_data", None)
-            
-            param_display_name = fp_to_show.split(".")[-1].replace("_ACT", "")
-            st.markdown(f'<p class="cofi-section-title" style="margin-top:0;">📈 Real-Time Traceability: {param_display_name}</p>', unsafe_allow_html=True)
-            
-            # Get parameter specs from reference datasheet
-            ref_row = reference_df[reference_df["OpcNodeId"] == fp_to_show] if not reference_df.empty else pd.DataFrame()
-            if not ref_row.empty:
-                fp_min = safe_float(ref_row.iloc[0]["MinValue"])
-                fp_max = safe_float(ref_row.iloc[0]["MaxValue"])
-                fp_mean = safe_float(ref_row.iloc[0]["MeanValue"]) if "MeanValue" in ref_row.columns else None
-            else:
-                fp_min = fp_max = fp_mean = None
-            
-            # ────────────────────────────────────────────────────────────────────────────
-            # Toggle between 3-second quick view and full timeline
-            # ────────────────────────────────────────────────────────────────────────────
-            st.markdown("---")
-            show_full_timeline = st.session_state.get("fullscreen_show_full_timeline", False)
-            
-            col_view, _ = st.columns([2, 3])
-            with col_view:
-                toggle_label = "📊 Switch to Quick View (3s)" if show_full_timeline else "📊 Switch to Full Timeline"
-                if st.button(toggle_label, use_container_width=True, key="timeline_toggle"):
-                    st.session_state["fullscreen_show_full_timeline"] = not show_full_timeline
-                    # Capture snapshot time when switching to full timeline
-                    if not show_full_timeline:
-                        from datetime import datetime
-                        st.session_state["fullscreen_full_timeline_snapshot_time"] = datetime.utcnow()
-                    else:
-                        # Clear snapshot when switching back to quick view
-                        st.session_state.pop("fullscreen_full_timeline_snapshot_time", None)
-            
-            st.markdown("---")
-            
-            # ── Overlay / compare parameter selector (from monitored params only) ──
-            overlay_param = None
-            try:
-                monitor_params = config_row.get("MonitoringParameters", [])
-                if isinstance(monitor_params, str):
-                    import json
-                    monitor_params = json.loads(monitor_params)
-                monitored_df = reference_df[reference_df["OpcNodeId"].isin(monitor_params)] if not reference_df.empty else pd.DataFrame()
-                eligible = monitored_df["OpcNodeId"].tolist()
-                eligible = [p for p in eligible if p != fp_to_show]
-                if eligible:
-                    st.markdown("**🔀 Compare with another parameter:**")
-                    display_opts = ["None"] + [p.split(".")[-1].replace("_ACT", "") for p in eligible]
-                    sel = st.selectbox("Select parameter to overlay:", options=display_opts, index=0,
-                                       key=f"fullscreen_overlay_{fp_to_show}")
-                    if sel != "None":
-                        overlay_param = eligible[display_opts.index(sel) - 1]
-            except Exception:
-                overlay_param = None
-            # ── End overlay selector ──
-            
-            if show_full_timeline:
-                # FULL TIMELINE MODE - STATIC SNAPSHOT
-                st.markdown('<p class="cofi-section-title">⏱️ Full Parameter Activity Timeline (Historical Snapshot)</p>', unsafe_allow_html=True)
-                snapshot_time = st.session_state.get("fullscreen_full_timeline_snapshot_time")
-                if snapshot_time:
-                    snap_display = snapshot_time.strftime('%Y-%m-%d %H:%M:%S') if hasattr(snapshot_time, 'strftime') else str(snapshot_time)[:19]
-                    st.caption(f"📌 Static snapshot captured at: **{snap_display}**\n\n🔄 The 3-second window updates in the background, but this chart shows complete history up to that moment (no refresh)")
-                else:
-                    st.caption("📊 Complete history from start")
-                
-                try:
-                    _render_full_timeline_incremental(machine_code, fp_to_show, fp_min, fp_max, fp_mean, overlay_param=overlay_param)
-                except Exception as e:
-                    st.error(f"ERROR rendering full timeline: {str(e)}")
-                    import traceback
-                    st.error(traceback.format_exc())
-            else:
-                # QUICK 3-SECOND MODE
-                st.markdown('<p class="cofi-section-title">⚡ Quick View: Last 3 Seconds (Sliding Window)</p>', unsafe_allow_html=True)
-                st.caption("🔄 Window slides every second: oldest drops, newest enters = zero delay!")
-                
-                try:
-                    _render_3second_fast_trace(machine_code, fp_to_show, fp_min, fp_max, fp_mean, overlay_param=overlay_param)
-                except Exception as e:
-                    st.error(f"ERROR rendering 3-second trace: {str(e)}")
-                    import traceback
-                    st.error(traceback.format_exc())
-            
-            # ── Full timeline is static - show message and allow user to switch back ──
-            if show_full_timeline:
-                st.markdown("---")
-                st.info("📌 **Static Snapshot Mode** — Full timeline is frozen. Switch back to Quick View to resume 1-second updates.")
-                
-                if st.button("↩️ Back to Quick View (Resume Updates)", use_container_width=True, key="back_to_quick_view"):
-                    st.session_state["fullscreen_show_full_timeline"] = False
-                    st.session_state.pop("fullscreen_full_timeline_snapshot_time", None)
-        
-        # FULLSCREEN ROOT CAUSE ANALYSIS VIEW
-        elif rca_to_show:
-            st.markdown("---")
-            col1, _ = st.columns([1, 4])
-            with col1:
-                if st.button("⬅️ Back to Dashboard", use_container_width=True):
-                    st.session_state.pop("fullscreen_rca_param", None)
-                    st.session_state.pop("fullscreen_data", None)
-
-            rca_param_name = rca_to_show.get("name", "Unknown")
-            rca_current_val = rca_to_show.get("val")
-            rca_min = rca_to_show.get("min")
-            rca_max = rca_to_show.get("max")
-            rca_status = rca_to_show.get("status", "🔴 OUT OF RANGE")
-
-            st.markdown(f'<p class="cofi-section-title" style="margin-top:0;">🔍 Root Cause Analysis: {rca_param_name}</p>', unsafe_allow_html=True)
-
-            col1, col2, col3 = st.columns(3)
-            with col1:
-                st.metric("Parameter", rca_param_name)
-            with col2:
-                st.metric("Current Value", f"{rca_current_val:.2f}")
-            with col3:
-                st.metric("Status", rca_status)
-
-            st.markdown("---")
-            st.markdown("### Analysis Result")
-
-            # Use Mistral for parameter-specific root cause analysis
-            with st.spinner("🧠 Analyzing parameter anomaly..."):
-                # Determine out-of-range type
-                if rca_current_val < rca_min:
-                    out_of_range_type = f"BELOW MINIMUM ({rca_min:.1f})"
-                elif rca_current_val > rca_max:
-                    out_of_range_type = f"ABOVE MAXIMUM ({rca_max:.1f})"
-                else:
-                    out_of_range_type = "OUT OF RANGE"
-
-                api_key = os.getenv("MISTRAL_API_KEY")
-                if not api_key:
-                    st.error("❌ Error: MISTRAL_API_KEY not found in environment.")
-                else:
-                    if Mistral:
-                        try:
-                            client = Mistral(api_key=api_key)
-                            response = client.chat.complete(
-                                model="mistral-small-latest",
-                                messages=[{"role": "user", "content": _build_rca_prompt(machine_code, rca_param_name, rca_current_val, rca_min, rca_max, out_of_range_type)}]
-                            )
-                            st.markdown(response.choices[0].message.content)
-                        except Exception as e:
-                            st.error(f"❌ Mistral API Error: {str(e)}")
-                    else:
-                        # Fallback: use HTTP-based call_mistral_ai
-                        analysis_text = analyze_parameter_anomaly(
-                            machine_code, rca_param_name, rca_current_val, rca_min, rca_max, "OUT OF RANGE"
-                        )
-                        st.markdown(analysis_text)
-
-            st.markdown(f"**Range:** [{rca_min:.1f}, {rca_max:.1f}]")
-            st.markdown(f"**Deviation:** {rca_current_val - (rca_min + rca_max) / 2:.2f} from midpoint")
-
-            if st.button("⬅️ Back to Dashboard", key="rca_back_button", use_container_width=True):
-                st.session_state.pop("fullscreen_rca_param", None)
-                st.session_state.pop("fullscreen_data", None)
-
-            st.stop()
-        
-        # Auto-refresh for traceability mode (only reached when fp_to_show, not RCA)
-        if fp_to_show:
-            time.sleep(1)
-            st.rerun()
-        
-        st.stop()  # Safety: no matching view mode
-    
-    st.stop()  # Safety: no config selected
-
-
-
-# ── GUARD: If fullscreen mode was active, stop before any main content ──
-if show_fullscreen:
-    st.stop()
-
 if "execution_started" not in st.session_state:
     st.session_state.execution_started = False
 if "execution_complete" not in st.session_state:
@@ -2134,12 +1946,8 @@ else:
 
         # ────── RENDER PARAMETER CARDS INSIDE FRAGMENT ──────
         # This ensures cards update every second with fresh data
-        st.markdown("### Parameters")
-        
-        # Display machine status message
-        if not machine_active_now:
-            st.warning(f"⏸️ **Machine in Standby** — {machine_status_now}. Monitoring details are hidden. The page will auto-refresh when the machine becomes active.")
-        else:
+        if machine_active_now:
+            st.markdown("### Parameters")
             st.success(f"▶️ **Machine Active** — {machine_status_now}. Monitoring is live.")
         
         # Store merged_readings and machine status in session state for use by card rendering fragment
@@ -2258,16 +2066,26 @@ else:
                         with col_header:
                             st.markdown("<div style='display: flex; flex-direction: column; gap: 6px;'>", unsafe_allow_html=True)
                             if exists_in_db and st.button("📈", key=f"card_{param}", help=f"View traceability: {label}"):
-                                st.session_state["fullscreen_param"] = param
+                                if st.session_state.get("show_traceability") == param:
+                                    st.session_state.pop("show_traceability", None)
+                                else:
+                                    st.session_state["show_traceability"] = param
+                                st.rerun()
                             if exists_in_db and not (current_val is None or lo is None or hi is None) and not (lo <= current_val <= hi):
                                 if st.button("🔍", key=f"rca_icon_{param}", help=f"Root cause analysis: {label}"):
-                                    st.session_state["fullscreen_rca_param"] = {
-                                        "name": param_name,
-                                        "val": float(current_val),
-                                        "min": lo,
-                                        "max": hi,
-                                        "status": "🔴 OUT OF RANGE",
-                                    }
+                                    rca_key = f"rca_{param}"
+                                    if st.session_state.get("show_rca") == rca_key:
+                                        st.session_state.pop("show_rca", None)
+                                    else:
+                                        st.session_state["show_rca"] = rca_key
+                                        st.session_state["rca_data"] = {
+                                            "name": param_name,
+                                            "val": float(current_val),
+                                            "min": lo,
+                                            "max": hi,
+                                            "status": "🔴 OUT OF RANGE",
+                                        }
+                                    st.rerun()
                             st.markdown("</div>", unsafe_allow_html=True)
                         with col_metric:
                             if param_source == "not_in_db":
@@ -2361,10 +2179,114 @@ else:
                             if last_update is not None and current_val is not None:
                                 st.caption(f"Last update: {last_update}")
     
-    # Call the card rendering fragment
-    render_parameter_cards()
+    # Call the card rendering fragment (only when machine active)
+    if machine_active_now:
+        render_parameter_cards()
+    else:
+        st.info("⏸️ **Machine is inactive.** Live monitoring, traceability, and RCA will appear when the machine becomes active.")
 
+    # ── Inline Traceability (only when machine active) ──────
+    if machine_active_now:
+        trace_param = st.session_state.get("show_traceability")
+        if trace_param:
+            st.markdown("---")
+            param_display = trace_param.split(".")[-1].replace("_ACT", "")
+            t_col1, t_col2 = st.columns([40, 1])
+            with t_col1:
+                st.markdown(f'<p class="cofi-section-title">📈 Traceability: {param_display}</p>', unsafe_allow_html=True)
+            with t_col2:
+                st.markdown('<div class="cofi-close-icon-btn">', unsafe_allow_html=True)
+                if st.button("✖️", key="close_trace", help="Close traceability"):
+                    st.session_state.pop("show_traceability", None)
+                    st.rerun()
+                st.markdown('</div>', unsafe_allow_html=True)
+            ref = param_to_ref.get(trace_param)
+            t_min = safe_float(ref["MinValue"]) if ref is not None else None
+            t_max = safe_float(ref["MaxValue"]) if ref is not None else None
+            t_mean = safe_float(ref["MeanValue"]) if ref is not None and "MeanValue" in ref else None
 
+            # ── Overlay / compare parameter selector ──
+            overlay_param = None
+            eligible_overlay = [p for p in mp if p != trace_param]
+            if eligible_overlay:
+                overlay_display_opts = ["None"] + [p.split(".")[-1].replace("_ACT", "") for p in eligible_overlay]
+                overlay_key = f"trace_overlay_{trace_param}"
+                current_overlay = st.session_state.get(overlay_key, "None")
+                default_idx = overlay_display_opts.index(current_overlay) if current_overlay in overlay_display_opts else 0
+                sel = st.selectbox(
+                    "Compare with another parameter:",
+                    options=overlay_display_opts,
+                    index=default_idx,
+                    key=overlay_key,
+                )
+                if sel != "None":
+                    overlay_param = eligible_overlay[overlay_display_opts.index(sel) - 1]
+
+            _render_3second_fast_trace(mc, trace_param, t_min, t_max, t_mean, overlay_param=overlay_param)
+
+    # ── Inline Root Cause Analysis (only when machine active) ──
+    if machine_active_now:
+        rca_key = st.session_state.get("show_rca")
+        if rca_key:
+            rca_data = st.session_state.get("rca_data", {})
+            if rca_data:
+                st.markdown("---")
+                rca_param_name = rca_data.get("name", "Unknown")
+                rca_current_val = rca_data.get("val")
+                rca_min = rca_data.get("min")
+                rca_max = rca_data.get("max")
+                rca_status = rca_data.get("status", "🔴 OUT OF RANGE")
+                r_col1, r_col2 = st.columns([40, 1])
+                with r_col1:
+                    st.markdown(f'<p class="cofi-section-title">🔍 Root Cause Analysis: {rca_param_name}</p>', unsafe_allow_html=True)
+                with r_col2:
+                    st.markdown('<div class="cofi-close-icon-btn">', unsafe_allow_html=True)
+                    if st.button("✖️", key="close_rca", help="Close root cause analysis"):
+                        st.session_state.pop("show_rca", None)
+                        st.session_state.pop("rca_data", None)
+                        for k in list(st.session_state.keys()):
+                            if k.startswith("rca_result_"):
+                                st.session_state.pop(k, None)
+                        st.rerun()
+                    st.markdown('</div>', unsafe_allow_html=True)
+                col1, col2, col3 = st.columns(3)
+                with col1:
+                    st.metric("Parameter", rca_param_name)
+                with col2:
+                    st.metric("Current Value", f"{rca_current_val:.2f}")
+                with col3:
+                    st.metric("Status", rca_status)
+                st.markdown("---")
+                st.markdown("### Analysis Result")
+                rca_cache_key = f"rca_result_{rca_key}"
+                if rca_cache_key not in st.session_state:
+                    with st.spinner("🧠 Analyzing parameter anomaly..."):
+                        if rca_current_val < rca_min:
+                            oort = f"BELOW MINIMUM ({rca_min:.1f})"
+                        elif rca_current_val > rca_max:
+                            oort = f"ABOVE MAXIMUM ({rca_max:.1f})"
+                        else:
+                            oort = "OUT OF RANGE"
+                        api_key = os.getenv("MISTRAL_API_KEY")
+                        if not api_key:
+                            st.session_state[rca_cache_key] = "❌ MISTRAL_API_KEY not found in environment."
+                        elif Mistral:
+                            try:
+                                client = Mistral(api_key=api_key)
+                                response = client.chat.complete(
+                                    model="mistral-small-latest",
+                                    messages=[{"role": "user", "content": _build_rca_prompt(mc, rca_param_name, rca_current_val, rca_min, rca_max, oort)}]
+                                )
+                                st.session_state[rca_cache_key] = response.choices[0].message.content
+                            except Exception as e:
+                                st.session_state[rca_cache_key] = f"❌ Mistral API Error: {str(e)}"
+                        else:
+                            st.session_state[rca_cache_key] = analyze_parameter_anomaly(
+                                mc, rca_param_name, rca_current_val, rca_min, rca_max, "OUT OF RANGE"
+                            )
+                st.markdown(st.session_state[rca_cache_key])
+                st.markdown(f"**Range:** [{rca_min:.1f}, {rca_max:.1f}]")
+                st.markdown(f"**Deviation:** {rca_current_val - (rca_min + rca_max) / 2:.2f} from midpoint")
 
     # Auto-refresh every second for real-time updates
     time.sleep(1)
